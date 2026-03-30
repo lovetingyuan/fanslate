@@ -78,6 +78,7 @@ To use the **OpenRouter** or **Google** translation services, you need to provid
 
 ```env
 WXT_OPENROUTER_API_KEY=your_openrouter_key
+WXT_OPENROUTER_MODEL=google/gemma-3-27b-it:free
 WXT_GOOGLE_HTML_API_KEY=your_google_key
 ```
 

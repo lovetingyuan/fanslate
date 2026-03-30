@@ -5,6 +5,9 @@ import packageJson from "./package.json";
 // See https://wxt.dev/api/config.html
 export default defineConfig({
   modules: ["@wxt-dev/module-react"],
+  webExt: {
+    startUrls: ["https://tingyuan.in"],
+  },
   manifest: {
     name: "中英直译",
     description:

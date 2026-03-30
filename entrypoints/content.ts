@@ -65,11 +65,11 @@ export default defineContentScript({
       if (message.action === "showLoadingDialog") {
         dialog.showLoading(message.originalText);
       } else if (message.action === "updateDetailDialog") {
-        dialog.updateSuccess(message.translation, message.direction);
+        dialog.updateSuccess(message.results, message.direction);
       } else if (message.action === "updateDetailDialogError") {
         dialog.updateError(message.message);
       } else if (message.action === "showDetailDialog") {
-        dialog.showDetail(message.originalText, message.translation, message.direction);
+        dialog.showDetail(message.originalText, message.results, message.direction);
       } else if (message.action === "showErrorDialog") {
         dialog.showError(message.message);
       }
