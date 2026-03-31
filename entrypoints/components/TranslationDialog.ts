@@ -699,6 +699,10 @@ class TranslationDialogView {
   private copiedService: TranslationServiceId | null = null
   private closingTimer: number | null = null
   private copyFeedbackTimer: number | null = null
+  private presentationVersion = 0
+  private translationBatchVersion = 0
+  private retryRequestSequence = 0
+  private retryRequestVersions: Partial<Record<TranslationServiceId, number>> = {}
   private activeDragMoveHandler: ((event: MouseEvent) => void) | null = null
   private activeDragUpHandler: (() => void) | null = null
   private originalTextHeight = 120 // 原文区域高度
@@ -806,6 +810,8 @@ class TranslationDialogView {
         : this.selectedServices.filter(
             service => !this.cachedResultsByService[service] && !this.pendingServices.has(service),
           )
+    const batchVersion = this.bumpTranslationBatchVersion()
+    const requestSessionKey = this.sessionKey
 
     this.pendingServices = new Set([...this.pendingServices, ...requestServices])
     this.errorMessage = ''
@@ -826,6 +832,7 @@ class TranslationDialogView {
         direction: this.direction,
         forceRefresh,
       })) as TranslateDialogResponse
+      if (!this.isActiveBatchRequest(batchVersion, requestSessionKey)) return
 
       if (response.success && Array.isArray(response.results)) {
         this.applyResults(response.results, response.direction)
@@ -840,12 +847,15 @@ class TranslationDialogView {
       }
     } catch (error: unknown) {
       if (isAbortError(error)) return
+      if (!this.isActiveBatchRequest(batchVersion, requestSessionKey)) return
 
       this.errorMessage = '翻译失败，请重试'
       if (this.results.length === 0) {
         this.status = 'error'
       }
     } finally {
+      if (!this.isActiveBatchRequest(batchVersion, requestSessionKey)) return
+
       const nextPendingServices = new Set(this.pendingServices)
       requestServices.forEach(service => nextPendingServices.delete(service))
       this.pendingServices = nextPendingServices
@@ -863,6 +873,7 @@ class TranslationDialogView {
   }
 
   private async showLoadingInternal(originalText: string): Promise<void> {
+    const presentationVersion = this.bumpPresentationVersion()
     this.status = 'loading'
     this.originalText = originalText
     this.errorMessage = ''
@@ -873,6 +884,8 @@ class TranslationDialogView {
     this.stopReading()
     this.resetDialogPosition()
     await this.loadSettings()
+    if (!this.isActivePresentation(presentationVersion)) return
+
     this.pendingServices = new Set(this.selectedServices)
     this.syncVisibleResults()
     this.renderView()
@@ -884,6 +897,7 @@ class TranslationDialogView {
     results: TranslationResultItem[],
     direction?: TranslationDirection,
   ): Promise<void> {
+    const presentationVersion = this.bumpPresentationVersion()
     this.status = 'success'
     this.originalText = originalText
     this.isServiceMenuOpen = false
@@ -895,6 +909,8 @@ class TranslationDialogView {
     this.stopReading()
     this.resetDialogPosition()
     await this.loadSettings()
+    if (!this.isActivePresentation(presentationVersion)) return
+
     this.syncVisibleResults()
     this.renderView()
     this.presentDialog()
@@ -921,6 +937,43 @@ class TranslationDialogView {
 
   private syncVisibleResults(): void {
     this.results = orderResultsByServices(this.cachedResultsByService, this.selectedServices)
+  }
+
+  private bumpPresentationVersion(): number {
+    this.presentationVersion += 1
+    return this.presentationVersion
+  }
+
+  private isActivePresentation(version: number): boolean {
+    return version === this.presentationVersion
+  }
+
+  private bumpTranslationBatchVersion(): number {
+    this.translationBatchVersion += 1
+    this.retryRequestVersions = {}
+    return this.translationBatchVersion
+  }
+
+  private isActiveBatchRequest(version: number, sessionKey: string): boolean {
+    return version === this.translationBatchVersion && sessionKey.length > 0 && sessionKey === this.sessionKey
+  }
+
+  private bumpRetryRequestVersion(service: TranslationServiceId): number {
+    this.retryRequestSequence += 1
+    this.retryRequestVersions[service] = this.retryRequestSequence
+    return this.retryRequestSequence
+  }
+
+  private isActiveRetryRequest(
+    service: TranslationServiceId,
+    retryVersion: number,
+    batchVersion: number,
+    sessionKey: string,
+  ): boolean {
+    return (
+      this.isActiveBatchRequest(batchVersion, sessionKey) &&
+      this.retryRequestVersions[service] === retryVersion
+    )
   }
 
   private applyResults(results: TranslationResultItem[], direction?: TranslationDirection): void {
@@ -956,6 +1009,7 @@ class TranslationDialogView {
   private animateIn(): void {
     const dialog = this.getDialogElement()
     if (!dialog) return
+    const presentationVersion = this.presentationVersion
 
     dialog.style.transform = 'scale(.86)'
     dialog.style.opacity = '0'
@@ -963,6 +1017,8 @@ class TranslationDialogView {
     this.syncDialogRuntimeState()
 
     window.setTimeout(() => {
+      if (!this.isActivePresentation(presentationVersion)) return
+
       const activeDialog = this.getDialogElement()
       if (!activeDialog) return
       activeDialog.style.transition =
@@ -978,8 +1034,15 @@ class TranslationDialogView {
     const dialog = this.getDialogElement()
     if (!dialog) return
 
+    this.bumpPresentationVersion()
+    this.bumpTranslationBatchVersion()
     this.abortOngoingTranslation()
     this.stopReading()
+    this.clearDragListeners()
+    this.clearResizeListeners()
+    this.isDialogDragging = false
+    this.isResizing = false
+    this.isServiceMenuOpen = false
     if (this.closingTimer) {
       window.clearTimeout(this.closingTimer)
     }
@@ -1249,6 +1312,9 @@ class TranslationDialogView {
     if (!this.selectedServices.includes(service) || this.pendingServices.has(service)) {
       return
     }
+    const batchVersion = this.translationBatchVersion
+    const requestSessionKey = this.sessionKey
+    const retryVersion = this.bumpRetryRequestVersion(service)
 
     if (this.readingResultService === service) {
       this.stopReading()
@@ -1272,6 +1338,7 @@ class TranslationDialogView {
         forceRefresh: true,
         preserveSelection: true,
       })) as TranslateDialogResponse
+      if (!this.isActiveRetryRequest(service, retryVersion, batchVersion, requestSessionKey)) return
 
       if (response.success && Array.isArray(response.results)) {
         this.applyResults(response.results, response.direction)
@@ -1286,12 +1353,15 @@ class TranslationDialogView {
       }
     } catch (error: unknown) {
       if (isAbortError(error)) return
+      if (!this.isActiveRetryRequest(service, retryVersion, batchVersion, requestSessionKey)) return
 
       this.errorMessage = `${getServiceLabel(service)} 翻译失败，请重试`
       if (this.results.length === 0) {
         this.status = 'error'
       }
     } finally {
+      if (!this.isActiveRetryRequest(service, retryVersion, batchVersion, requestSessionKey)) return
+
       const nextPendingServices = new Set(this.pendingServices)
       nextPendingServices.delete(service)
       this.pendingServices = nextPendingServices
