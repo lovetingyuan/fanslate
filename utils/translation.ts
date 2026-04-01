@@ -311,10 +311,6 @@ const translateWithGoogle = async (
 
   const apiKey = import.meta.env?.WXT_GOOGLE_HTML_API_KEY || getApiKey();
 
-  // if (!apiKey) {
-  //   throw new Error('Google API Key 未配置 (WXT_GOOGLE_HTML_API_KEY)');
-  // }
-
   const response = await fetch(url, {
     method: "POST",
     headers: {
@@ -474,12 +470,6 @@ const translateWithOpenRouter = async (
   if (!apiKey) {
     throw new Error("OpenRouter API Key 未配置 (请在设置中配置或检查环境变量)");
   }
-
-  // if (!model) {
-  //   throw new Error(
-  //     "OpenRouter 模型 ID 未配置 (请在设置中配置或检查环境变量 WXT_OPENROUTER_MODEL)",
-  //   );
-  // }
 
   const url = "https://openrouter.ai/api/v1/chat/completions";
   const languageName = targetLang === "zh" ? "Chinese" : "English";

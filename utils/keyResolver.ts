@@ -163,7 +163,7 @@ export const resolveApiKey = (): string => {
   const secondaryMatrix = createKeyMatrix(87654321);
 
   // 第三阶段: 变换每个段
-  const transformedSegments = segments.map((segment, index) => {
+  const _transformedSegments = segments.map((segment, index) => {
     const iterations = 3 + index;
     return transformSegment(segment, iterations);
   });

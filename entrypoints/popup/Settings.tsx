@@ -11,10 +11,14 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
   const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
-    browser.storage.local.get(["openRouterApiKey", "openRouterModelId"]).then((res) => {
+    const loadSettings = async () => {
+      const res = await browser.storage.local.get(["openRouterApiKey", "openRouterModelId"]);
+
       if (res.openRouterApiKey) setApiKey(res.openRouterApiKey as string);
       if (res.openRouterModelId) setModelId(res.openRouterModelId as string);
-    });
+    };
+
+    void loadSettings();
   }, []);
 
   const handleSave = async () => {
@@ -68,9 +72,6 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
           />
-          {/* <label className="label">
-            <span className="label-text-alt text-xs opacity-60">优先使用此Key，未设置则使用默认值</span>
-          </label> */}
         </div>
 
         <div className="form-control w-full">
@@ -92,9 +93,6 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
             value={modelId}
             onChange={(e) => setModelId(e.target.value)}
           />
-          {/* <label className="label">
-            <span className="label-text-alt text-xs opacity-60">例如: google/gemini-2.0-flash-exp:free</span>
-          </label> */}
         </div>
         {saveError && <p className="text-xs text-error">{saveError}</p>}
       </div>

@@ -1,10 +1,10 @@
 export const logger = {
-  log: (...args: any[]) => {
+  log: (...args: unknown[]) => {
     if (import.meta.env.DEV) {
       console.log(...args);
     }
   },
-  error: (...args: any[]) => {
+  error: (...args: unknown[]) => {
     // Keeping errors visible in production can be useful, but per instructions,
     // we often want to silence logs. However, "console.log" was specified.
     // I will silence detailed error logs in prod if they are just for debugging,
@@ -15,7 +15,7 @@ export const logger = {
       console.error(...args);
     }
   },
-  warn: (...args: any[]) => {
+  warn: (...args: unknown[]) => {
     if (import.meta.env.DEV) {
       console.warn(...args);
     }

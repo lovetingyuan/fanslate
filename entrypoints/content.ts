@@ -1,4 +1,50 @@
 import { TranslationDialog } from "./components/TranslationDialog";
+import type { TranslationDirection, TranslationResultItem } from "../utils/translation";
+
+/**
+ * Messages sent from background script to content script.
+ * Each variant corresponds to a distinct UI action in the TranslationDialog.
+ */
+type ContentScriptMessage =
+  | { action: "showLoadingDialog"; originalText: string }
+  | {
+      action: "updateDetailDialog";
+      results: TranslationResultItem[];
+      direction: TranslationDirection;
+    }
+  | { action: "updateDetailDialogError"; message: string }
+  | {
+      action: "showDetailDialog";
+      originalText: string;
+      results: TranslationResultItem[];
+      direction: TranslationDirection;
+    }
+  | { action: "showErrorDialog"; message: string };
+
+/** Type guard to validate incoming messages from background script */
+const isContentScriptMessage = (msg: unknown): msg is ContentScriptMessage => {
+  if (typeof msg !== "object" || msg === null) return false;
+  const m = msg as Record<string, unknown>;
+  if (typeof m.action !== "string") return false;
+  switch (m.action) {
+    case "showLoadingDialog":
+      return typeof m.originalText === "string";
+    case "updateDetailDialog":
+      return Array.isArray(m.results) && typeof m.direction === "string";
+    case "updateDetailDialogError":
+      return typeof m.message === "string";
+    case "showDetailDialog":
+      return (
+        typeof m.originalText === "string" &&
+        Array.isArray(m.results) &&
+        typeof m.direction === "string"
+      );
+    case "showErrorDialog":
+      return typeof m.message === "string";
+    default:
+      return false;
+  }
+};
 
 export default defineContentScript({
   matches: ["http://*/*", "https://*/*"],
@@ -7,6 +53,7 @@ export default defineContentScript({
 
     let lastSelectedText = "";
     let dialogInstance: TranslationDialog | null = null;
+    let selectionChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
     const handleSelectionChange = () => {
       const selection = window.getSelection();
@@ -40,8 +87,14 @@ export default defineContentScript({
       }
     };
 
+    /** Debounced version for selectionchange events to avoid flooding the background script */
+    const handleSelectionChangeDebounced = () => {
+      if (selectionChangeTimer) clearTimeout(selectionChangeTimer);
+      selectionChangeTimer = setTimeout(handleSelectionChange, 200);
+    };
+
     document.addEventListener("mouseup", handleSelectionChange);
-    document.addEventListener("selectionchange", handleSelectionChange);
+    document.addEventListener("selectionchange", handleSelectionChangeDebounced);
 
     /**
      * Helper to get or create the translation dialog instance
@@ -57,21 +110,32 @@ export default defineContentScript({
       return dialogInstance;
     };
 
-    browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (!isContentScriptMessage(message)) {
+        sendResponse({ success: false });
+        return false;
+      }
+
       if (import.meta.env.DEV) console.log("Content script received message:", message.action);
 
       const dialog = getOrCreateDialog();
 
-      if (message.action === "showLoadingDialog") {
-        dialog.showLoading(message.originalText);
-      } else if (message.action === "updateDetailDialog") {
-        dialog.updateIncremental(message.results, message.direction);
-      } else if (message.action === "updateDetailDialogError") {
-        dialog.updateError(message.message);
-      } else if (message.action === "showDetailDialog") {
-        dialog.showDetail(message.originalText, message.results, message.direction);
-      } else if (message.action === "showErrorDialog") {
-        dialog.showError(message.message);
+      switch (message.action) {
+        case "showLoadingDialog":
+          dialog.showLoading(message.originalText);
+          break;
+        case "updateDetailDialog":
+          dialog.updateIncremental(message.results, message.direction);
+          break;
+        case "updateDetailDialogError":
+          dialog.updateError(message.message);
+          break;
+        case "showDetailDialog":
+          dialog.showDetail(message.originalText, message.results, message.direction);
+          break;
+        case "showErrorDialog":
+          dialog.showError(message.message);
+          break;
       }
 
       sendResponse({ success: true });

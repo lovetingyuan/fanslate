@@ -448,6 +448,7 @@ export default defineBackground(() => {
       if (typeof tabId === "number") {
         const selection = getTabSelection(tabId);
         sendResponse({ ...selection, results: getVisibleResults(selection) });
+        return false;
       } else {
         browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
           const activeTabId = tabs[0]?.id;
