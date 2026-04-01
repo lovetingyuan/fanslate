@@ -10,6 +10,48 @@ import process from "node:process";
  */
 
 /**
+ * Build a Windows-safe command invocation. `git` should bypass the shell so the
+ * commit message is preserved exactly, while `npm.cmd` must run through `cmd`.
+ *
+ * @param {string} command
+ * @param {string[]} args
+ * @returns {{ command: string; args: string[] }}
+ */
+function resolveInvocation(command, args) {
+  if (process.platform !== "win32") {
+    return { command, args };
+  }
+
+  if (command === "npm") {
+    const escapedArgs = args.map(escapeWindowsCmdArgument).join(" ");
+    return {
+      command: process.env.ComSpec ?? "cmd.exe",
+      args: ["/d", "/s", "/c", `npm ${escapedArgs}`],
+    };
+  }
+
+  return { command, args };
+}
+
+/**
+ * Quote a single argument for `cmd.exe /c`.
+ *
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeWindowsCmdArgument(value) {
+  if (value.length === 0) {
+    return '""';
+  }
+
+  if (!/[ \t"&()^[\]{}=;!'+,`~]/.test(value)) {
+    return value;
+  }
+
+  return `"${value.replace(/"/g, '""')}"`;
+}
+
+/**
  * Run a command and inherit stdio so the release flow stays transparent.
  * This is used for state-changing steps like build, commit, tag and push.
  *
@@ -19,11 +61,11 @@ import process from "node:process";
 function runCommand(command, args = []) {
   const displayCommand = [command, ...args].join(" ");
   console.log(`==> ${displayCommand}`);
+  const invocation = resolveInvocation(command, args);
 
-  const result = spawnSync(command, args, {
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: process.cwd(),
     stdio: "inherit",
-    shell: process.platform === "win32",
   });
 
   if (result.error) {
@@ -43,10 +85,10 @@ function runCommand(command, args = []) {
  * @returns {CommandResult}
  */
 function runCommandForOutput(command, args = []) {
-  const result = spawnSync(command, args, {
+  const invocation = resolveInvocation(command, args);
+  const result = spawnSync(invocation.command, invocation.args, {
     cwd: process.cwd(),
     encoding: "utf8",
-    shell: process.platform === "win32",
   });
 
   if (result.error) {
