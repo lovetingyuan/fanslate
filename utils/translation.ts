@@ -1,7 +1,13 @@
 import { getApiKey } from "./keyResolver";
 import { logger } from "./logger";
 
-export const TRANSLATION_SERVICE_IDS = ["google", "microsoft", "tencent", "openrouter"] as const;
+export const TRANSLATION_SERVICE_IDS = [
+  "google",
+  "microsoft",
+  "tencent",
+  "deepl",
+  "openrouter",
+] as const;
 
 export type TranslationServiceId = (typeof TRANSLATION_SERVICE_IDS)[number];
 export type TranslationDirection = "zh" | "en";
@@ -59,6 +65,18 @@ interface MicrosoftTranslationResponseItem {
 }
 
 /**
+ * Captures the minimal DeepL response shape used by the extension so malformed
+ * API payloads surface as explicit provider errors instead of silent failures.
+ */
+interface DeepLTranslation {
+  text?: string;
+}
+
+interface DeepLTranslationResponse {
+  translations?: DeepLTranslation[];
+}
+
+/**
  * Bundles the persisted provider visibility and selection state so popup and
  * content-script UIs can stay consistent after migrations or settings changes.
  */
@@ -82,16 +100,18 @@ const LEGACY_SELECTED_SERVICE_STORAGE_KEY = "selectedService";
 const HIDDEN_SERVICES_STORAGE_KEY = "hiddenServices";
 
 export const TRANSLATION_SERVICE_OPTIONS: TranslationServiceOption[] = [
-  { id: "google", label: "Google 翻译" },
-  { id: "microsoft", label: "Microsoft 翻译" },
+  { id: "google", label: "Google" },
+  { id: "microsoft", label: "Microsoft" },
   { id: "tencent", label: "腾讯翻译" },
+  { id: "deepl", label: "DeepL" },
   { id: "openrouter", label: "OpenRouter" },
 ];
 
 const TRANSLATION_SERVICE_LABELS: Record<TranslationServiceId, string> = {
-  google: "Google 翻译",
-  microsoft: "Microsoft 翻译",
+  google: "Google",
+  microsoft: "Microsoft",
   tencent: "腾讯翻译",
+  deepl: "DeepL",
   openrouter: "OpenRouter",
 };
 
@@ -452,6 +472,59 @@ const translateWithTencent = async (
   throw new Error("Tencent翻译返回数据格式错误");
 };
 
+/**
+ * DeepL requires a user-provided API key stored in extension settings, so the
+ * provider stays visible but reports a clear configuration error when missing.
+ */
+const translateWithDeepL = async (
+  text: string,
+  targetLang: TranslationDirection,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const settings = await browser.storage.local.get(["deeplApiKey"]);
+  const apiKey = settings.deeplApiKey as string | undefined;
+
+  if (!apiKey) {
+    throw new Error("DeepL API Key 未配置，请先在设置中填写");
+  }
+
+  const deeplTargetLang = targetLang === "zh" ? "ZH" : "EN";
+  const url = "https://api-free.deepl.com/v2/translate";
+
+  logger.log("正在请求DeepL翻译API:", url, "Target:", deeplTargetLang);
+
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `DeepL-Auth-Key ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      text: [text],
+      target_lang: deeplTargetLang,
+    }),
+    signal,
+  });
+
+  logger.log("DeepL翻译API响应状态:", response.status, response.statusText);
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    logger.error("DeepL翻译API错误响应:", errorText);
+    throw new Error(`DeepL请求失败: ${response.status}`);
+  }
+
+  const data = (await response.json()) as DeepLTranslationResponse;
+  logger.log("DeepL翻译API返回数据:", data);
+
+  const translation = data.translations?.[0]?.text;
+  if (typeof translation === "string") {
+    return translation;
+  }
+
+  throw new Error("DeepL翻译返回数据格式错误");
+};
+
 const translateWithOpenRouter = async (
   text: string,
   targetLang: TranslationDirection,
@@ -526,6 +599,7 @@ const translatorMap: Record<TranslationServiceId, TranslatorFunction> = {
   google: translateWithGoogle,
   microsoft: translateWithMicrosoft,
   tencent: translateWithTencent,
+  deepl: translateWithDeepL,
   openrouter: translateWithOpenRouter,
 };
 

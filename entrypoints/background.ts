@@ -39,7 +39,12 @@ type ContextMenusWithOnShown = typeof browser.contextMenus & {
       callback: (info: { selectionText?: string }, tab?: { id?: number }) => void,
     ) => void;
   };
+  refresh?: () => Promise<void> | void;
 };
+
+const CONTEXT_MENU_DEFAULT_TITLE = "翻译";
+const CONTEXT_MENU_PREVIEW_LIMIT = 30;
+const CONTEXT_MENU_PREFETCH_LIMIT = 200;
 
 const createEmptyTabState = (): TabTranslationState => ({
   text: "",
@@ -67,6 +72,23 @@ const normalizeRequestedDirection = (value: unknown): TranslationDirection | und
   return value === "zh" || value === "en" ? value : undefined;
 };
 
+/**
+ * Context menu labels are rendered by the host browser, so we collapse
+ * whitespace before truncating to avoid blank labels caused by embedded
+ * newlines or tabs in the selected text.
+ */
+const getContextMenuTitle = (text?: string): string => {
+  const normalizedText = text?.replace(/\s+/g, " ").trim() ?? "";
+
+  if (!normalizedText) {
+    return CONTEXT_MENU_DEFAULT_TITLE;
+  }
+
+  return normalizedText.length > CONTEXT_MENU_PREVIEW_LIMIT
+    ? `翻译: ${normalizedText.slice(0, CONTEXT_MENU_PREVIEW_LIMIT - 3)}...`
+    : `翻译: ${normalizedText}`;
+};
+
 export default defineBackground(() => {
   const tabSelections = new Map<number, TabTranslationState>();
   const tabControllers = new Map<number, Map<TranslationServiceId, AbortController>>();
@@ -80,7 +102,7 @@ export default defineBackground(() => {
       await browser.contextMenus.removeAll();
       await browser.contextMenus.create({
         id: "translate-selection",
-        title: "翻译",
+        title: CONTEXT_MENU_DEFAULT_TITLE,
         contexts: ["selection"],
         documentUrlPatterns: ["http://*/*", "https://*/*"],
       });
@@ -338,13 +360,13 @@ export default defineBackground(() => {
   browser.tabs.onActivated.addListener(({ tabId }) => {
     const selection = tabSelections.get(tabId);
     if (selection?.text) {
-      const menuTitle =
-        selection.text.length > 30
-          ? `翻译: ${selection.text.substring(0, 27)}...`
-          : `翻译: ${selection.text}`;
-      browser.contextMenus.update("translate-selection", { title: menuTitle }).catch(() => {});
+      browser.contextMenus
+        .update("translate-selection", { title: getContextMenuTitle(selection.text) })
+        .catch(() => {});
     } else {
-      browser.contextMenus.update("translate-selection", { title: "翻译" }).catch(() => {});
+      browser.contextMenus
+        .update("translate-selection", { title: CONTEXT_MENU_DEFAULT_TITLE })
+        .catch(() => {});
     }
   });
 
@@ -355,18 +377,20 @@ export default defineBackground(() => {
       const selectedText = info.selectionText?.trim();
       const tabId = tab?.id;
 
-      if (!selectedText || selectedText.length === 0 || selectedText.length >= 200) {
+      if (!selectedText || selectedText.length === 0) {
         return;
       }
 
-      const menuTitle =
-        selectedText.length > 30
-          ? `翻译: ${selectedText.substring(0, 27)}...`
-          : `翻译: ${selectedText}`;
-
-      browser.contextMenus.update("translate-selection", { title: menuTitle }).catch(() => {});
+      browser.contextMenus
+        .update("translate-selection", { title: getContextMenuTitle(selectedText) })
+        .then(() => contextMenusWithOnShown.refresh?.())
+        .catch(() => {});
 
       if (typeof tabId !== "number") {
+        return;
+      }
+
+      if (selectedText.length >= CONTEXT_MENU_PREFETCH_LIMIT) {
         return;
       }
 
@@ -464,11 +488,6 @@ export default defineBackground(() => {
     }
 
     if (action === "updateMenuTitle" && typeof runtimeMessage.text === "string") {
-      const menuTitle =
-        runtimeMessage.text.length > 30
-          ? `翻译: ${runtimeMessage.text.substring(0, 27)}...`
-          : `翻译: ${runtimeMessage.text}`;
-
       if (typeof tabId === "number") {
         const current = getTabSelection(tabId);
         if (current.text !== runtimeMessage.text) {
@@ -483,7 +502,7 @@ export default defineBackground(() => {
       }
 
       browser.contextMenus
-        .update("translate-selection", { title: menuTitle })
+        .update("translate-selection", { title: getContextMenuTitle(runtimeMessage.text) })
         .then(() => sendResponse({ success: true }))
         .catch(() => sendResponse({ success: false }));
       return true;
@@ -491,7 +510,7 @@ export default defineBackground(() => {
 
     if (action === "resetMenuTitle") {
       browser.contextMenus
-        .update("translate-selection", { title: "翻译" })
+        .update("translate-selection", { title: CONTEXT_MENU_DEFAULT_TITLE })
         .then(() => sendResponse({ success: true }))
         .catch(() => sendResponse({ success: false }));
       return true;

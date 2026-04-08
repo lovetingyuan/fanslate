@@ -12,6 +12,7 @@ A modern, bidirectional Chinese-English translation browser extension built with
   - **Google Translate** (Default)
   - **Microsoft Edge Translate**
   - **Tencent Transmart**
+  - **DeepL**: Requires a user-configured API key in popup settings (Free endpoint).
   - **OpenRouter (LLM)**: Support for AI-powered translations (requires API key).
 - **Modern UI**: Clean and responsive translation dialog built with **DaisyUI** and **Tailwind CSS**.
 - **Style Isolation**: Uses **Shadow DOM** to ensure the extension UI doesn't conflict with host website styles.
@@ -81,6 +82,8 @@ WXT_OPENROUTER_API_KEY=your_openrouter_key
 WXT_OPENROUTER_MODEL=google/gemma-3-27b-it:free
 WXT_GOOGLE_HTML_API_KEY=your_google_key
 ```
+
+DeepL does not use an environment variable in this project. To enable it, open the extension popup, go to settings, and fill in your DeepL API key. The current implementation targets the DeepL Free endpoint: `https://api-free.deepl.com`.
 
 ## 📂 Project Structure
 
