@@ -1,4 +1,5 @@
 import { TranslationDialog } from "./components/TranslationDialog";
+import { browser } from "wxt/browser";
 import type { TranslationDirection, TranslationResultItem } from "../utils/translation";
 
 /**
@@ -59,7 +60,7 @@ export default defineContentScript({
       const selection = window.getSelection();
       const selectedText = selection?.toString().trim();
 
-      if (selectedText && selectedText !== lastSelectedText && selectedText.length < 200) {
+      if (selectedText && selectedText !== lastSelectedText) {
         lastSelectedText = selectedText;
         browser.runtime
           .sendMessage({
