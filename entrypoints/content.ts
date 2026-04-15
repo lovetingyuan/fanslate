@@ -1,13 +1,18 @@
 import { TranslationDialog } from "./components/TranslationDialog";
 import { browser } from "wxt/browser";
 import type { TranslationDirection, TranslationResultItem } from "../utils/translation";
+import {
+  normalizeTranslationSourcePayload,
+  type TranslationSourcePayload,
+} from "../utils/richText";
+import { extractFormattedSelection } from "../utils/richTextDom";
 
 /**
  * Messages sent from background script to content script.
  * Each variant corresponds to a distinct UI action in the TranslationDialog.
  */
 type ContentScriptMessage =
-  | { action: "showLoadingDialog"; originalText: string }
+  | { action: "showLoadingDialog"; source: TranslationSourcePayload }
   | {
       action: "updateDetailDialog";
       results: TranslationResultItem[];
@@ -16,7 +21,7 @@ type ContentScriptMessage =
   | { action: "updateDetailDialogError"; message: string }
   | {
       action: "showDetailDialog";
-      originalText: string;
+      source: TranslationSourcePayload;
       results: TranslationResultItem[];
       direction: TranslationDirection;
     }
@@ -29,14 +34,14 @@ const isContentScriptMessage = (msg: unknown): msg is ContentScriptMessage => {
   if (typeof m.action !== "string") return false;
   switch (m.action) {
     case "showLoadingDialog":
-      return typeof m.originalText === "string";
+      return normalizeTranslationSourcePayload(m.source) !== null;
     case "updateDetailDialog":
       return Array.isArray(m.results) && typeof m.direction === "string";
     case "updateDetailDialogError":
       return typeof m.message === "string";
     case "showDetailDialog":
       return (
-        typeof m.originalText === "string" &&
+        normalizeTranslationSourcePayload(m.source) !== null &&
         Array.isArray(m.results) &&
         typeof m.direction === "string"
       );
@@ -52,33 +57,34 @@ export default defineContentScript({
   main() {
     if (import.meta.env.DEV) console.log("Translation content script loaded.");
 
-    let lastSelectedText = "";
+    let lastSelectionKey = "";
     let dialogInstance: TranslationDialog | null = null;
     let selectionChangeTimer: ReturnType<typeof setTimeout> | null = null;
 
     const handleSelectionChange = () => {
-      const selection = window.getSelection();
-      const selectedText = selection?.toString().trim();
+      const selectionPayload = extractFormattedSelection(window.getSelection());
+      const selectionKey = selectionPayload
+        ? `${selectionPayload.plainText}::${selectionPayload.sanitizedHtml ?? ""}`
+        : "";
 
-      if (selectedText && selectedText !== lastSelectedText) {
-        lastSelectedText = selectedText;
+      if (selectionPayload && selectionKey !== lastSelectionKey) {
+        lastSelectionKey = selectionKey;
         browser.runtime
           .sendMessage({
-            action: "updateMenuTitle",
-            text: selectedText,
+            action: "updateSelectionPayload",
+            selection: selectionPayload,
           })
           .catch((err) => {
             if (import.meta.env.DEV) console.error("发送更新菜单消息失败:", err);
           });
-      } else if (!selectedText && lastSelectedText) {
+      } else if (!selectionPayload && lastSelectionKey) {
         setTimeout(() => {
-          const newSelection = window.getSelection();
-          const newSelectedText = newSelection?.toString().trim();
-          if (!newSelectedText && lastSelectedText) {
-            lastSelectedText = "";
+          const nextSelectionPayload = extractFormattedSelection(window.getSelection());
+          if (!nextSelectionPayload && lastSelectionKey) {
+            lastSelectionKey = "";
             browser.runtime
               .sendMessage({
-                action: "resetMenuTitle",
+                action: "clearSelectionPayload",
               })
               .catch((err) => {
                 if (import.meta.env.DEV) console.error("发送重置菜单消息失败:", err);
@@ -123,7 +129,7 @@ export default defineContentScript({
 
       switch (message.action) {
         case "showLoadingDialog":
-          dialog.showLoading(message.originalText);
+          dialog.showLoading(message.source);
           break;
         case "updateDetailDialog":
           dialog.updateIncremental(message.results, message.direction);
@@ -132,7 +138,7 @@ export default defineContentScript({
           dialog.updateError(message.message);
           break;
         case "showDetailDialog":
-          dialog.showDetail(message.originalText, message.results, message.direction);
+          dialog.showDetail(message.source, message.results, message.direction);
           break;
         case "showErrorDialog":
           dialog.showError(message.message);

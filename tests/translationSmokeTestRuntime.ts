@@ -45,7 +45,8 @@ const runSmokeTestWithRetries = async (
 
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
     try {
-      return await translationProviders[service]('apple', 'zh')
+      const result = await translationProviders[service]('apple', 'zh')
+      return result.translation
     } catch (error) {
       lastError = error
 

@@ -13,9 +13,17 @@ import {
   type TranslationResultsByService,
   type TranslationServiceId,
 } from "../utils/translation";
+import {
+  buildTranslationSourceKey,
+  createPlainTextSource,
+  normalizeTranslationSourcePayload,
+  type TranslationSourcePayload,
+} from "../utils/richText";
 
 interface TabTranslationState {
   text: string;
+  source: TranslationSourcePayload | null;
+  sourceKey: string;
   timestamp: number;
   success: boolean;
   direction: TranslationDirection;
@@ -27,6 +35,7 @@ interface TabTranslationState {
 interface RuntimeMessageShape {
   action?: unknown;
   text?: unknown;
+  selection?: unknown;
   services?: unknown;
   direction?: unknown;
   forceRefresh?: unknown;
@@ -48,6 +57,8 @@ const CONTEXT_MENU_PREFETCH_LIMIT = 200;
 
 const createEmptyTabState = (): TabTranslationState => ({
   text: "",
+  source: null,
+  sourceKey: "",
   timestamp: 0,
   success: false,
   direction: "zh",
@@ -192,12 +203,21 @@ export default defineBackground(() => {
     return orderResultsByServices(state.cachedResultsByService, services);
   };
 
+  const resolveTabSource = (tabId: number, text: string): TranslationSourcePayload => {
+    const currentState = getTabSelection(tabId);
+    return currentState.text === text && currentState.source
+      ? currentState.source
+      : createPlainTextSource(text);
+  };
+
   const createTabSessionState = (
-    text: string,
+    source: TranslationSourcePayload,
     direction: TranslationDirection,
     selectedServices: TranslationServiceId[],
   ): TabTranslationState => ({
-    text,
+    text: source.plainText,
+    source,
+    sourceKey: buildTranslationSourceKey(source),
     timestamp: Date.now(),
     success: false,
     direction,
@@ -208,13 +228,17 @@ export default defineBackground(() => {
 
   const mergeTabResults = (
     tabId: number,
-    text: string,
+    source: TranslationSourcePayload,
     direction: TranslationDirection,
     results: TranslationResultItem[],
   ): void => {
     const state = getTabSelection(tabId);
 
-    if (state.text !== text || state.direction !== direction) {
+    if (
+      state.text !== source.plainText ||
+      state.sourceKey !== buildTranslationSourceKey(source) ||
+      state.direction !== direction
+    ) {
       return;
     }
 
@@ -234,7 +258,7 @@ export default defineBackground(() => {
 
   const requestTabTranslations = async (
     tabId: number,
-    text: string,
+    source: TranslationSourcePayload,
     services?: TranslationServiceId[],
     direction?: TranslationDirection,
     forceRefresh = false,
@@ -242,19 +266,25 @@ export default defineBackground(() => {
     notifyIncremental = false,
   ): Promise<TranslationBatchResult> => {
     const requestedServices = await resolveRequestedServices(services);
-    const finalDirection = direction ?? detectDirection(text);
+    const finalDirection = direction ?? detectDirection(source.plainText);
+    const sourceKey = buildTranslationSourceKey(source);
 
     if (requestedServices.length === 0) {
       throw new Error("至少选择一个翻译服务");
     }
 
     const currentState = getTabSelection(tabId);
-    const sameSession = currentState.text === text && currentState.direction === finalDirection;
+    const sameSession =
+      currentState.text === source.plainText &&
+      currentState.sourceKey === sourceKey &&
+      currentState.direction === finalDirection;
 
     if (!sameSession) {
       abortTabTranslations(tabId);
-      tabSelections.set(tabId, createTabSessionState(text, finalDirection, requestedServices));
+      tabSelections.set(tabId, createTabSessionState(source, finalDirection, requestedServices));
     } else {
+      currentState.source = source;
+      currentState.sourceKey = sourceKey;
       currentState.selectedServices =
         preserveSelection && currentState.selectedServices.length > 0
           ? currentState.selectedServices
@@ -291,14 +321,23 @@ export default defineBackground(() => {
       const controller = new AbortController();
       controllerMap.set(service, controller);
 
-      const requestPromise = translateWithService(text, service, finalDirection, controller.signal)
+      const requestPromise = translateWithService(
+        source,
+        service,
+        finalDirection,
+        controller.signal,
+      )
         .then((result) => {
-          mergeTabResults(tabId, text, finalDirection, [result]);
+          mergeTabResults(tabId, source, finalDirection, [result]);
 
           // 增量通知 UI: 每个服务完成后立即发送更新
           if (notifyIncremental) {
             const latestState = getTabSelection(tabId);
-            if (latestState.text === text && latestState.direction === finalDirection) {
+            if (
+              latestState.text === source.plainText &&
+              latestState.sourceKey === sourceKey &&
+              latestState.direction === finalDirection
+            ) {
               browser.tabs
                 .sendMessage(tabId, {
                   action: "updateDetailDialog",
@@ -334,6 +373,8 @@ export default defineBackground(() => {
     await Promise.all(resultPromises);
 
     const latestState = getTabSelection(tabId);
+    latestState.source = source;
+    latestState.sourceKey = sourceKey;
     latestState.selectedServices =
       preserveSelection && latestState.selectedServices.length > 0
         ? latestState.selectedServices
@@ -405,7 +446,7 @@ export default defineBackground(() => {
 
       void requestTabTranslations(
         tabId,
-        selectedText,
+        resolveTabSource(tabId, selectedText),
         undefined,
         undefined,
         false,
@@ -436,7 +477,7 @@ export default defineBackground(() => {
         typeof tabId === "number"
           ? requestTabTranslations(
               tabId,
-              text,
+              resolveTabSource(tabId, text),
               services,
               direction,
               forceRefresh,
@@ -487,28 +528,43 @@ export default defineBackground(() => {
       }
     }
 
-    if (action === "updateMenuTitle" && typeof runtimeMessage.text === "string") {
+    if (action === "updateSelectionPayload") {
+      const selection = normalizeTranslationSourcePayload(runtimeMessage.selection);
+
+      if (!selection) {
+        sendResponse({ success: false });
+        return false;
+      }
+
       if (typeof tabId === "number") {
         const current = getTabSelection(tabId);
-        if (current.text !== runtimeMessage.text) {
+        if (
+          current.text !== selection.plainText ||
+          current.sourceKey !== buildTranslationSourceKey(selection)
+        ) {
           abortTabTranslations(tabId);
           tabSelections.set(tabId, {
             ...createEmptyTabState(),
-            text: runtimeMessage.text,
-            direction: detectDirection(runtimeMessage.text),
+            text: selection.plainText,
+            source: selection,
+            sourceKey: buildTranslationSourceKey(selection),
+            direction: detectDirection(selection.plainText),
             selectedServices: current.selectedServices,
           });
+        } else {
+          current.source = selection;
+          current.sourceKey = buildTranslationSourceKey(selection);
         }
       }
 
       browser.contextMenus
-        .update("translate-selection", { title: getContextMenuTitle(runtimeMessage.text) })
+        .update("translate-selection", { title: getContextMenuTitle(selection.plainText) })
         .then(() => sendResponse({ success: true }))
         .catch(() => sendResponse({ success: false }));
       return true;
     }
 
-    if (action === "resetMenuTitle") {
+    if (action === "clearSelectionPayload") {
       browser.contextMenus
         .update("translate-selection", { title: CONTEXT_MENU_DEFAULT_TITLE })
         .then(() => sendResponse({ success: true }))
@@ -526,7 +582,11 @@ export default defineBackground(() => {
 
     const tabId = tab.id;
     const currentSelection = getTabSelection(tabId);
-    const textToTranslate = info.selectionText?.trim() || currentSelection.text;
+    const sourceToTranslate = resolveTabSource(
+      tabId,
+      info.selectionText?.trim() || currentSelection.text,
+    );
+    const textToTranslate = sourceToTranslate.plainText;
 
     if (!textToTranslate) {
       browser.tabs
@@ -550,20 +610,20 @@ export default defineBackground(() => {
         browser.tabs
           .sendMessage(tabId, {
             action: "showDetailDialog",
-            originalText: textToTranslate,
+            source: sourceToTranslate,
             results: cachedResults,
             direction,
           })
           .catch(() => {});
       } else {
         browser.tabs
-          .sendMessage(tabId, { action: "showLoadingDialog", originalText: textToTranslate })
+          .sendMessage(tabId, { action: "showLoadingDialog", source: sourceToTranslate })
           .catch(() => {});
       }
 
       requestTabTranslations(
         tabId,
-        textToTranslate,
+        sourceToTranslate,
         selectedServices,
         direction,
         false,
@@ -587,6 +647,8 @@ export default defineBackground(() => {
           tabSelections.set(tabId, {
             ...createEmptyTabState(),
             text: textToTranslate,
+            source: sourceToTranslate,
+            sourceKey: buildTranslationSourceKey(sourceToTranslate),
             direction,
             selectedServices,
           });

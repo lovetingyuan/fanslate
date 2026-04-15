@@ -1,8 +1,11 @@
 import { css, html, render, svg } from "lit";
+import { unsafeHTML } from "lit/directives/unsafe-html.js";
 import { unsafeSVG } from "lit/directives/unsafe-svg.js";
 import { browser } from "wxt/browser";
 import iconSvg from "../../assets/icon.svg?raw";
 import { decodeResults } from "../../utils/decode";
+import { sanitizeRichTextHtml } from "../../utils/richTextDom";
+import type { TranslationSourcePayload } from "../../utils/richText";
 import {
   buildTranslationSessionKey,
   detectDirection,
@@ -603,6 +606,88 @@ const dialogStyles = css`
     word-break: break-word;
   }
 
+  .original-text p,
+  .result-text p,
+  .original-text blockquote,
+  .result-text blockquote,
+  .original-text ul,
+  .result-text ul,
+  .original-text ol,
+  .result-text ol,
+  .original-text h1,
+  .result-text h1,
+  .original-text h2,
+  .result-text h2,
+  .original-text h3,
+  .result-text h3,
+  .original-text h4,
+  .result-text h4,
+  .original-text h5,
+  .result-text h5,
+  .original-text h6,
+  .result-text h6 {
+    margin: 0 0 0.8em;
+  }
+
+  .original-text p:last-child,
+  .result-text p:last-child,
+  .original-text blockquote:last-child,
+  .result-text blockquote:last-child,
+  .original-text ul:last-child,
+  .result-text ul:last-child,
+  .original-text ol:last-child,
+  .result-text ol:last-child,
+  .original-text h1:last-child,
+  .result-text h1:last-child,
+  .original-text h2:last-child,
+  .result-text h2:last-child,
+  .original-text h3:last-child,
+  .result-text h3:last-child,
+  .original-text h4:last-child,
+  .result-text h4:last-child,
+  .original-text h5:last-child,
+  .result-text h5:last-child,
+  .original-text h6:last-child,
+  .result-text h6:last-child {
+    margin-bottom: 0;
+  }
+
+  .original-text ul,
+  .result-text ul,
+  .original-text ol,
+  .result-text ol {
+    padding-left: 1.25em;
+  }
+
+  .original-text li + li,
+  .result-text li + li {
+    margin-top: 0.25em;
+  }
+
+  .original-text blockquote,
+  .result-text blockquote {
+    border-left: 3px solid var(--border);
+    margin-left: 0;
+    padding-left: 0.9em;
+    color: var(--sub);
+  }
+
+  .original-text a,
+  .result-text a {
+    color: var(--active);
+    text-decoration: underline;
+  }
+
+  .original-text strong,
+  .result-text strong {
+    font-weight: 700;
+  }
+
+  .original-text em,
+  .result-text em {
+    font-style: italic;
+  }
+
   .error-state {
     color: var(--error);
     display: flex;
@@ -667,6 +752,8 @@ class TranslationDialogView {
   public onClose?: () => void;
 
   private originalText = "";
+  private originalHtml = "";
+  private originalContentFormat: "plain" | "html" = "plain";
   private results: TranslationResultItem[] = [];
   private direction: TranslationDirection = "zh";
   private selectedServices: TranslationServiceId[] = [];
@@ -704,8 +791,8 @@ class TranslationDialogView {
     this.renderView();
   }
 
-  public showLoading(originalText: string): void {
-    void this.showLoadingInternal(originalText);
+  public showLoading(source: TranslationSourcePayload): void {
+    void this.showLoadingInternal(source);
   }
 
   public updateSuccess(results: TranslationResultItem[], direction?: TranslationDirection): void {
@@ -764,11 +851,11 @@ class TranslationDialogView {
   }
 
   public showDetail(
-    originalText: string,
+    source: TranslationSourcePayload,
     results: TranslationResultItem[],
     direction?: TranslationDirection,
   ): void {
-    void this.showDetailInternal(originalText, results, direction);
+    void this.showDetailInternal(source, results, direction);
   }
 
   /**
@@ -864,15 +951,24 @@ class TranslationDialogView {
     }
   }
 
-  private async showLoadingInternal(originalText: string): Promise<void> {
+  private setOriginalContent(source: TranslationSourcePayload): void {
+    this.originalText = source.plainText;
+    this.originalContentFormat = source.format;
+    this.originalHtml =
+      source.format === "html" && source.sanitizedHtml
+        ? sanitizeRichTextHtml(source.sanitizedHtml)
+        : "";
+  }
+
+  private async showLoadingInternal(source: TranslationSourcePayload): Promise<void> {
     const presentationVersion = this.bumpPresentationVersion();
     this.status = "loading";
-    this.originalText = originalText;
+    this.setOriginalContent(source);
     this.errorMessage = "";
     this.isServiceMenuOpen = false;
     this.isDialogExpanded = false;
-    this.direction = detectDirection(originalText);
-    this.resetSession(originalText, this.direction);
+    this.direction = detectDirection(source.plainText);
+    this.resetSession(source.plainText, this.direction);
     this.stopReading();
     this.resetDialogPosition();
     await this.loadSettings();
@@ -885,17 +981,17 @@ class TranslationDialogView {
   }
 
   private async showDetailInternal(
-    originalText: string,
+    source: TranslationSourcePayload,
     results: TranslationResultItem[],
     direction?: TranslationDirection,
   ): Promise<void> {
     const presentationVersion = this.bumpPresentationVersion();
     this.status = "success";
-    this.originalText = originalText;
+    this.setOriginalContent(source);
     this.isServiceMenuOpen = false;
     this.isDialogExpanded = false;
-    this.direction = direction || detectDirection(originalText);
-    this.resetSession(originalText, this.direction);
+    this.direction = direction || detectDirection(source.plainText);
+    this.resetSession(source.plainText, this.direction);
     this.pendingServices = new Set();
     this.applyResults(results, this.direction);
     this.stopReading();
@@ -977,11 +1073,33 @@ class TranslationDialogView {
       this.direction = direction;
     }
 
+    const normalizedResults = decodeResults(results).map((result) =>
+      result.status === "success" && result.contentFormat === "html" && result.translationHtml
+        ? {
+            ...result,
+            translationHtml: sanitizeRichTextHtml(result.translationHtml),
+          }
+        : result,
+    );
+
     this.cachedResultsByService = {
       ...this.cachedResultsByService,
-      ...mapResultsByService(decodeResults(results)),
+      ...mapResultsByService(normalizedResults),
     };
     this.syncVisibleResults();
+  }
+
+  private renderRichTextContent(
+    plainText: string,
+    htmlContent: string,
+    format: "plain" | "html",
+    className: string,
+  ) {
+    if (format === "html" && htmlContent) {
+      return html`<div class=${className}>${unsafeHTML(htmlContent)}</div>`;
+    }
+
+    return html`<div class=${className}>${plainText}</div>`;
   }
 
   private presentDialog(): void {
@@ -1248,7 +1366,12 @@ class TranslationDialogView {
             </div>
           </div>
           ${result.status === "success"
-            ? html`<div class="result-text">${result.translation}</div>`
+            ? this.renderRichTextContent(
+                result.translation,
+                result.translationHtml ?? "",
+                result.contentFormat === "html" ? "html" : "plain",
+                "result-text",
+              )
             : html`
                 <div class="error-state">
                   ${renderErrorIcon()}
@@ -1750,7 +1873,12 @@ class TranslationDialogView {
                 </button>
               </div>
             </div>
-            <div class="text original-text">${this.originalText}</div>
+            ${this.renderRichTextContent(
+              this.originalText,
+              this.originalHtml,
+              this.originalContentFormat,
+              "text original-text",
+            )}
           </section>
 
           <div class="resizer ${this.isResizing ? "resizing" : ""}" title="可按住上下拖动">
@@ -1798,9 +1926,9 @@ export class TranslationDialog {
     this.element.onClose = handler;
   }
 
-  public showLoading(originalText: string): void {
+  public showLoading(source: TranslationSourcePayload): void {
     this.ensureInDocument();
-    this.element.showLoading(originalText);
+    this.element.showLoading(source);
   }
 
   public updateSuccess(results: TranslationResultItem[], direction?: TranslationDirection): void {
@@ -1827,12 +1955,12 @@ export class TranslationDialog {
   }
 
   public showDetail(
-    originalText: string,
+    source: TranslationSourcePayload,
     results: TranslationResultItem[],
     direction?: TranslationDirection,
   ): void {
     this.ensureInDocument();
-    this.element.showDetail(originalText, results, direction);
+    this.element.showDetail(source, results, direction);
   }
 
   private ensureInDocument(): void {

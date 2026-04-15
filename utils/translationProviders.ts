@@ -1,8 +1,15 @@
 import type {
-  TranslationDirection,
   TranslationServiceId,
   TranslatorFunction,
 } from './translation'
+import {
+  hasMeaningfulHtml,
+  resolveSourcePlainText,
+  resolveSourceRequestBody,
+  stripHtmlToPlainText,
+  type TranslationProviderResult,
+  type TranslationSourcePayload,
+} from './richText'
 
 interface OpenRouterMessage {
   content?: string
@@ -86,8 +93,26 @@ export const buildBrowserLikeHeaders = (
 export const createTranslationProviders = (
   runtimeConfig: TranslationProviderRuntimeConfig,
 ): Record<TranslationServiceId, TranslatorFunction> => {
-  const translateWithGoogle: TranslatorFunction = async (text, targetLang, signal) => {
+  const buildPlainResult = (translation: string): TranslationProviderResult => ({
+    translation,
+    contentFormat: 'plain',
+  })
+
+  const buildHtmlResult = (translationHtml: string): TranslationProviderResult => ({
+    translation: stripHtmlToPlainText(translationHtml),
+    translationHtml,
+    contentFormat: 'html',
+  })
+
+  const resolveRichHtmlSource = (source: string | TranslationSourcePayload): string | null =>
+    typeof source !== 'string' && source.format === 'html' && source.sanitizedHtml
+      ? source.sanitizedHtml
+      : null
+
+  const translateWithGoogle: TranslatorFunction = async (source, targetLang, signal) => {
     const url = 'https://translate-pa.googleapis.com/v1/translateHtml'
+    const requestBody = resolveSourceRequestBody(source)
+    const richHtmlSource = resolveRichHtmlSource(source)
 
     runtimeConfig.logger.log('正在请求Google翻译API:', url)
 
@@ -102,7 +127,7 @@ export const createTranslationProviders = (
         origin: 'https://translate.google.com',
         referer: 'https://translate.google.com/',
       }),
-      body: JSON.stringify([[[text], 'auto', targetLang], 'wt_lib']),
+      body: JSON.stringify([[[requestBody], 'auto', targetLang], 'wt_lib']),
       signal,
     })
 
@@ -124,20 +149,30 @@ export const createTranslationProviders = (
       }
 
       if (Array.isArray(firstItem) && firstItem.length > 0 && typeof firstItem[0] === 'string') {
-        return firstItem[0]
+        const translation = firstItem[0]
+        if (richHtmlSource && hasMeaningfulHtml(translation)) {
+          return buildHtmlResult(translation)
+        }
+
+        return buildPlainResult(richHtmlSource ? stripHtmlToPlainText(translation) : translation)
       }
 
       if (typeof firstItem === 'string') {
-        return firstItem
+        if (richHtmlSource && hasMeaningfulHtml(firstItem)) {
+          return buildHtmlResult(firstItem)
+        }
+
+        return buildPlainResult(richHtmlSource ? stripHtmlToPlainText(firstItem) : firstItem)
       }
     }
 
     throw new Error('GoogleHtml翻译返回数据格式错误')
   }
 
-  const translateWithMicrosoft: TranslatorFunction = async (text, targetLang, signal) => {
+  const translateWithMicrosoft: TranslatorFunction = async (source, targetLang, signal) => {
     const toLang = targetLang === 'zh' ? 'zh-Hans' : 'en'
-    const url = `https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&from=&to=${toLang}`
+    const richHtmlSource = resolveRichHtmlSource(source)
+    const url = `https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&from=&to=${toLang}${richHtmlSource ? '&textType=html' : ''}`
 
     runtimeConfig.logger.log('正在请求Microsoft翻译API:', url)
 
@@ -155,7 +190,7 @@ export const createTranslationProviders = (
         pragma: 'no-cache',
         referer: 'https://www.bing.com/',
       }),
-      body: JSON.stringify([{ Text: text }]),
+      body: JSON.stringify([{ Text: resolveSourceRequestBody(source) }]),
       signal,
     })
 
@@ -172,14 +207,17 @@ export const createTranslationProviders = (
 
     const translation = data[0]?.translations?.[0]?.text
     if (typeof translation === 'string') {
-      return translation
+      return richHtmlSource && hasMeaningfulHtml(translation)
+        ? buildHtmlResult(translation)
+        : buildPlainResult(richHtmlSource ? stripHtmlToPlainText(translation) : translation)
     }
 
     throw new Error('Microsoft翻译返回数据格式错误')
   }
 
-  const translateWithDeepL: TranslatorFunction = async (text, targetLang, signal) => {
+  const translateWithDeepL: TranslatorFunction = async (source, targetLang, signal) => {
     const apiKey = await runtimeConfig.getDeepLApiKey()
+    const richHtmlSource = resolveRichHtmlSource(source)
 
     if (!apiKey) {
       throw new Error('DeepL API Key 未配置，请先在设置中填写')
@@ -200,8 +238,9 @@ export const createTranslationProviders = (
         referer: 'https://www.deepl.com/translator',
       }),
       body: JSON.stringify({
-        text: [text],
+        text: [resolveSourceRequestBody(source)],
         target_lang: deeplTargetLang,
+        ...(richHtmlSource ? { tag_handling: 'html' } : {}),
       }),
       signal,
     })
@@ -219,13 +258,15 @@ export const createTranslationProviders = (
 
     const translation = data.translations?.[0]?.text
     if (typeof translation === 'string') {
-      return translation
+      return richHtmlSource && hasMeaningfulHtml(translation)
+        ? buildHtmlResult(translation)
+        : buildPlainResult(richHtmlSource ? stripHtmlToPlainText(translation) : translation)
     }
 
     throw new Error('DeepL翻译返回数据格式错误')
   }
 
-  const translateWithOpenRouter: TranslatorFunction = async (text, targetLang, signal) => {
+  const translateWithOpenRouter: TranslatorFunction = async (source, targetLang, signal) => {
     const apiKey = await runtimeConfig.getOpenRouterApiKey()
     const model = (await runtimeConfig.getOpenRouterModel()) || DEFAULT_OPENROUTER_MODEL
 
@@ -261,7 +302,7 @@ Rules:
           { role: 'system', content: systemPrompt },
           {
             role: 'user',
-            content: `Translate the content inside <source_text> to ${languageName}:\n<source_text>\n${text}\n</source_text>`,
+            content: `Translate the content inside <source_text> to ${languageName}:\n<source_text>\n${resolveSourcePlainText(source)}\n</source_text>`,
           },
         ],
       }),
@@ -281,7 +322,7 @@ Rules:
 
     const content = data.choices?.[0]?.message?.content
     if (typeof content === 'string') {
-      return content
+      return buildPlainResult(content)
     }
 
     throw new Error('OpenRouter翻译返回数据格式错误')
