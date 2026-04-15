@@ -1,6 +1,12 @@
 import { getApiKey } from './keyResolver'
 import { logger } from './logger'
 import {
+  resolveSourcePlainText,
+  type TranslationProviderResult,
+  type TranslationRichTextResult,
+  type TranslationSourcePayload,
+} from './richText'
+import {
   createTranslationProviders,
   type TranslationProviderRuntimeConfig,
 } from './translationProviders'
@@ -30,6 +36,7 @@ export interface TranslationResultItem {
   error: string
   direction: TranslationDirection
 }
+export interface TranslationResultItem extends TranslationRichTextResult {}
 
 export interface TranslationBatchResult {
   results: TranslationResultItem[]
@@ -59,10 +66,10 @@ export interface TranslationServicePreferences {
 }
 
 export type TranslatorFunction = (
-  text: string,
+  source: string | TranslationSourcePayload,
   targetLang: TranslationDirection,
   signal?: AbortSignal,
-) => Promise<string>
+) => Promise<TranslationProviderResult>
 
 const DEFAULT_SELECTED_SERVICES: TranslationServiceId[] = ['google']
 const DEFAULT_HIDDEN_SERVICES: TranslationServiceId[] = []
@@ -536,16 +543,16 @@ export const detectDirection = (text: string): TranslationDirection => {
  * service independently while keeping the existing per-provider error payload.
  */
 export const translateWithService = async (
-  text: string,
+  source: string | TranslationSourcePayload,
   service: TranslationServiceId,
   targetLang?: TranslationDirection,
   signal?: AbortSignal,
 ): Promise<TranslationResultItem> => {
-  const finalDirection = targetLang || detectDirection(text)
+  const finalDirection = targetLang || detectDirection(resolveSourcePlainText(source))
   const translator = translatorMap[service]
 
   try {
-    const translation = await translator(text, finalDirection, signal)
+    const translationResult = await translator(source, finalDirection, signal)
 
     if (signal?.aborted) {
       throw createAbortError()
@@ -555,7 +562,9 @@ export const translateWithService = async (
       service,
       serviceLabel: getServiceLabel(service),
       status: 'success',
-      translation,
+      translation: translationResult.translation,
+      translationHtml: translationResult.translationHtml,
+      contentFormat: translationResult.contentFormat,
       error: '',
       direction: finalDirection,
     }
@@ -581,12 +590,12 @@ export const translateWithService = async (
  * belong to the active translation session.
  */
 export const translateWithServices = async (
-  text: string,
+  source: string | TranslationSourcePayload,
   services?: TranslationServiceId[],
   targetLang?: TranslationDirection,
   options?: TranslateWithServicesOptions,
 ): Promise<TranslationBatchResult> => {
-  const finalDirection = targetLang || detectDirection(text)
+  const finalDirection = targetLang || detectDirection(resolveSourcePlainText(source))
   const signal = options?.signal
   const hiddenServices = await getHiddenServices()
   const selectedServices = services
@@ -598,7 +607,7 @@ export const translateWithServices = async (
   }
 
   const results = await Promise.all(
-    selectedServices.map(service => translateWithService(text, service, finalDirection, signal)),
+    selectedServices.map(service => translateWithService(source, service, finalDirection, signal)),
   )
 
   if (signal?.aborted) {

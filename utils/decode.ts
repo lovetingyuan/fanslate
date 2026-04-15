@@ -9,7 +9,7 @@ export const decodeHtmlEntities = (text: string): string => {
 /** Applies HTML entity decoding to all successful translation results */
 export const decodeResults = (results: TranslationResultItem[]): TranslationResultItem[] =>
   results.map((result) =>
-    result.status === "success"
+    result.status === "success" && result.contentFormat !== "html"
       ? { ...result, translation: decodeHtmlEntities(result.translation) }
       : result,
   );
