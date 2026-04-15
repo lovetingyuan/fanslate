@@ -27,6 +27,10 @@ type ContentScriptMessage =
     }
   | { action: "showErrorDialog"; message: string };
 
+type ContentScriptRequest = {
+  action: "getSelectionPayload";
+};
+
 /** Type guard to validate incoming messages from background script */
 const isContentScriptMessage = (msg: unknown): msg is ContentScriptMessage => {
   if (typeof msg !== "object" || msg === null) return false;
@@ -50,6 +54,12 @@ const isContentScriptMessage = (msg: unknown): msg is ContentScriptMessage => {
     default:
       return false;
   }
+};
+
+const isContentScriptRequest = (msg: unknown): msg is ContentScriptRequest => {
+  if (typeof msg !== "object" || msg === null) return false;
+  const m = msg as Record<string, unknown>;
+  return m.action === "getSelectionPayload";
 };
 
 export default defineContentScript({
@@ -118,6 +128,11 @@ export default defineContentScript({
     };
 
     browser.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      if (isContentScriptRequest(message)) {
+        sendResponse({ success: true, selection: extractFormattedSelection(window.getSelection()) });
+        return false;
+      }
+
       if (!isContentScriptMessage(message)) {
         sendResponse({ success: false });
         return false;

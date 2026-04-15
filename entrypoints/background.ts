@@ -15,6 +15,7 @@ import {
 } from "../utils/translation";
 import {
   buildTranslationSourceKey,
+  chooseSelectionSource,
   createPlainTextSource,
   normalizeTranslationSourcePayload,
   type TranslationSourcePayload,
@@ -205,9 +206,37 @@ export default defineBackground(() => {
 
   const resolveTabSource = (tabId: number, text: string): TranslationSourcePayload => {
     const currentState = getTabSelection(tabId);
-    return currentState.text === text && currentState.source
-      ? currentState.source
-      : createPlainTextSource(text);
+    return chooseSelectionSource({
+      liveSource: null,
+      cachedSource: currentState.text === text ? currentState.source : null,
+      fallbackText: text,
+    });
+  };
+
+  const requestLiveSelectionSource = async (
+    tabId: number,
+    fallbackText: string,
+  ): Promise<TranslationSourcePayload> => {
+    const currentState = getTabSelection(tabId);
+
+    try {
+      const response = (await browser.tabs.sendMessage(tabId, {
+        action: "getSelectionPayload",
+      })) as { selection?: unknown; success?: boolean } | undefined;
+
+      const liveSource = normalizeTranslationSourcePayload(response?.selection);
+      return chooseSelectionSource({
+        liveSource,
+        cachedSource: currentState.text === fallbackText ? currentState.source : null,
+        fallbackText,
+      });
+    } catch {
+      return chooseSelectionSource({
+        liveSource: null,
+        cachedSource: currentState.text === fallbackText ? currentState.source : null,
+        fallbackText,
+      });
+    }
   };
 
   const createTabSessionState = (
@@ -582,13 +611,9 @@ export default defineBackground(() => {
 
     const tabId = tab.id;
     const currentSelection = getTabSelection(tabId);
-    const sourceToTranslate = resolveTabSource(
-      tabId,
-      info.selectionText?.trim() || currentSelection.text,
-    );
-    const textToTranslate = sourceToTranslate.plainText;
+    const fallbackText = info.selectionText?.trim() || currentSelection.text;
 
-    if (!textToTranslate) {
+    if (!fallbackText) {
       browser.tabs
         .sendMessage(tabId, { action: "showErrorDialog", message: "请先选中文本" })
         .catch(() => {});
@@ -596,6 +621,8 @@ export default defineBackground(() => {
     }
 
     void (async () => {
+      const sourceToTranslate = await requestLiveSelectionSource(tabId, fallbackText);
+      const textToTranslate = sourceToTranslate.plainText;
       const selectedServices = await getSelectedServices();
       const direction =
         currentSelection.text === textToTranslate

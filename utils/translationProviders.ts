@@ -62,6 +62,14 @@ export interface TranslationProviderRuntimeConfig {
 }
 
 const DEFAULT_OPENROUTER_MODEL = 'openrouter/free'
+const HTML_TOKEN_PATTERN = /(<[^>]+>)/u
+
+interface HtmlTextSegment {
+  coreText: string
+  leadingWhitespace: string
+  tokenIndex: number
+  trailingWhitespace: string
+}
 
 const readResponseTextSafely = async (response: Response): Promise<string> => {
   try {
@@ -109,10 +117,65 @@ export const createTranslationProviders = (
       ? source.sanitizedHtml
       : null
 
-  const translateWithGoogle: TranslatorFunction = async (source, targetLang, signal) => {
+  const collectHtmlTextSegments = (html: string): { segments: HtmlTextSegment[]; tokens: string[] } => {
+    const tokens = html.split(HTML_TOKEN_PATTERN)
+    const segments = tokens.reduce<HtmlTextSegment[]>((accumulator, token, tokenIndex) => {
+      if (!token || token.startsWith('<')) {
+        return accumulator
+      }
+
+      const trimmed = token.trim()
+      if (!trimmed) {
+        return accumulator
+      }
+
+      const leadingWhitespaceLength = token.length - token.trimStart().length
+      const trailingWhitespaceLength = token.length - token.trimEnd().length
+
+      accumulator.push({
+        tokenIndex,
+        coreText: trimmed,
+        leadingWhitespace: token.slice(0, leadingWhitespaceLength),
+        trailingWhitespace:
+          trailingWhitespaceLength > 0 ? token.slice(token.length - trailingWhitespaceLength) : '',
+      })
+
+      return accumulator
+    }, [])
+
+    return { tokens, segments }
+  }
+
+  const reconstructHtmlTranslation = async (
+    html: string,
+    translatePlainText: (text: string) => Promise<string>,
+  ): Promise<TranslationProviderResult> => {
+    const { tokens, segments } = collectHtmlTextSegments(html)
+
+    if (segments.length === 0) {
+      return buildHtmlResult(html)
+    }
+
+    const translatedSegments = await Promise.all(
+      segments.map(async segment => ({
+        ...segment,
+        translation: await translatePlainText(segment.coreText),
+      })),
+    )
+
+    translatedSegments.forEach(segment => {
+      tokens[segment.tokenIndex] = `${segment.leadingWhitespace}${segment.translation}${segment.trailingWhitespace}`
+    })
+
+    return buildHtmlResult(tokens.join(''))
+  }
+
+  const requestGoogleTranslation = async (
+    text: string,
+    targetLang: string,
+    signal?: AbortSignal,
+  ): Promise<string> => {
     const url = 'https://translate-pa.googleapis.com/v1/translateHtml'
-    const requestBody = resolveSourceRequestBody(source)
-    const richHtmlSource = resolveRichHtmlSource(source)
 
     runtimeConfig.logger.log('正在请求Google翻译API:', url)
 
@@ -127,7 +190,7 @@ export const createTranslationProviders = (
         origin: 'https://translate.google.com',
         referer: 'https://translate.google.com/',
       }),
-      body: JSON.stringify([[[requestBody], 'auto', targetLang], 'wt_lib']),
+      body: JSON.stringify([[[text], 'auto', targetLang], 'wt_lib']),
       signal,
     })
 
@@ -149,24 +212,33 @@ export const createTranslationProviders = (
       }
 
       if (Array.isArray(firstItem) && firstItem.length > 0 && typeof firstItem[0] === 'string') {
-        const translation = firstItem[0]
-        if (richHtmlSource && hasMeaningfulHtml(translation)) {
-          return buildHtmlResult(translation)
-        }
-
-        return buildPlainResult(richHtmlSource ? stripHtmlToPlainText(translation) : translation)
+        return firstItem[0]
       }
 
       if (typeof firstItem === 'string') {
-        if (richHtmlSource && hasMeaningfulHtml(firstItem)) {
-          return buildHtmlResult(firstItem)
-        }
-
-        return buildPlainResult(richHtmlSource ? stripHtmlToPlainText(firstItem) : firstItem)
+        return firstItem
       }
     }
 
     throw new Error('GoogleHtml翻译返回数据格式错误')
+  }
+
+  const translateWithGoogle: TranslatorFunction = async (source, targetLang, signal) => {
+    const requestBody = resolveSourceRequestBody(source)
+    const richHtmlSource = resolveRichHtmlSource(source)
+    const translation = await requestGoogleTranslation(requestBody, targetLang, signal)
+
+    if (richHtmlSource && hasMeaningfulHtml(translation)) {
+      return buildHtmlResult(translation)
+    }
+
+    if (richHtmlSource) {
+      return reconstructHtmlTranslation(richHtmlSource, text =>
+        requestGoogleTranslation(text, targetLang, signal),
+      )
+    }
+
+    return buildPlainResult(translation)
   }
 
   const translateWithMicrosoft: TranslatorFunction = async (source, targetLang, signal) => {
@@ -240,7 +312,13 @@ export const createTranslationProviders = (
       body: JSON.stringify({
         text: [resolveSourceRequestBody(source)],
         target_lang: deeplTargetLang,
-        ...(richHtmlSource ? { tag_handling: 'html' } : {}),
+        ...(richHtmlSource
+          ? {
+              tag_handling: 'html',
+              tag_handling_version: 'v2',
+              preserve_formatting: true,
+            }
+          : {}),
       }),
       signal,
     })

@@ -130,6 +130,34 @@ export const buildTranslationSourceKey = (source: TranslationSourcePayload): str
     ? `html::${source.plainText}::${source.sanitizedHtml}`
     : `plain::${source.plainText}`
 
+const normalizeComparableSelectionText = (value: string): string =>
+  value.replace(/\s+/gu, ' ').trim()
+
+export const chooseSelectionSource = ({
+  cachedSource,
+  fallbackText,
+  liveSource,
+}: {
+  cachedSource: TranslationSourcePayload | null
+  fallbackText: string
+  liveSource: TranslationSourcePayload | null
+}): TranslationSourcePayload => {
+  const normalizedFallbackText = normalizeComparableSelectionText(fallbackText)
+
+  if (liveSource && normalizeComparableSelectionText(liveSource.plainText) === normalizedFallbackText) {
+    return liveSource
+  }
+
+  if (
+    cachedSource &&
+    normalizeComparableSelectionText(cachedSource.plainText) === normalizedFallbackText
+  ) {
+    return cachedSource
+  }
+
+  return createPlainTextSource(normalizedFallbackText)
+}
+
 export const resolveSourceRequestBody = (source: TranslationSourcePayload | string): string => {
   if (typeof source === 'string') {
     return source
