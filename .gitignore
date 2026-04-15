@@ -26,6 +26,7 @@ web-ext.config.ts
 *.sln
 *.sw?
 .env.*
+!.env.example
 
 .claude/worktrees/
 # AI generated temp files

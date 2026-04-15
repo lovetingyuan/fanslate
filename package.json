@@ -9,8 +9,8 @@
     "dev:firefox": "wxt -b firefox",
     "build": "wxt build",
     "build:firefox": "wxt build -b firefox",
-    "zip": "wxt zip",
-    "zip:firefox": "wxt zip -b firefox",
+    "test": "vitest run",
+    "zip": "npm run test && wxt zip && wxt zip -b firefox",
     "release": "node ./scripts/release.mjs",
     "compile": "tsc --noEmit",
     "lint": "oxlint . --fix && oxfmt .",
@@ -35,6 +35,7 @@
     "postcss": "^8.5.6",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.9.3",
+    "vitest": "^3.2.4",
     "wxt": "^0.20.6"
   }
 }

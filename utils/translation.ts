@@ -1,5 +1,9 @@
 import { getApiKey } from './keyResolver'
 import { logger } from './logger'
+import {
+  createTranslationProviders,
+  type TranslationProviderRuntimeConfig,
+} from './translationProviders'
 
 export const TRANSLATION_SERVICE_IDS = [
   'google',
@@ -45,38 +49,6 @@ export interface TranslateWithServicesOptions {
   signal?: AbortSignal
 }
 
-interface OpenRouterMessage {
-  content?: string
-}
-
-interface OpenRouterChoice {
-  message?: OpenRouterMessage
-}
-
-interface OpenRouterResponse {
-  choices?: OpenRouterChoice[]
-}
-
-interface MicrosoftTranslation {
-  text?: string
-}
-
-interface MicrosoftTranslationResponseItem {
-  translations?: MicrosoftTranslation[]
-}
-
-/**
- * Captures the minimal DeepL response shape used by the extension so malformed
- * API payloads surface as explicit provider errors instead of silent failures.
- */
-interface DeepLTranslation {
-  text?: string
-}
-
-interface DeepLTranslationResponse {
-  translations?: DeepLTranslation[]
-}
-
 /**
  * Bundles the persisted provider visibility and selection state so popup and
  * content-script UIs can stay consistent after migrations or settings changes.
@@ -87,7 +59,7 @@ export interface TranslationServicePreferences {
   visibleServiceOptions: TranslationServiceOption[]
 }
 
-type TranslatorFunction = (
+export type TranslatorFunction = (
   text: string,
   targetLang: TranslationDirection,
   signal?: AbortSignal,
@@ -353,282 +325,41 @@ const getMicrosoftToken = async (): Promise<string> => {
   return token
 }
 
-const translateWithGoogle = async (
-  text: string,
-  targetLang: TranslationDirection,
-  signal?: AbortSignal,
-): Promise<string> => {
-  const url = 'https://translate-pa.googleapis.com/v1/translateHtml'
+const getStorageString = async (key: string): Promise<string | null> => {
+  const result = await browser.storage.local.get([key])
+  const value = result[key]
 
-  logger.log('正在请求Google翻译API:', url)
-
-  const apiKey = getApiKey()
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json+protobuf',
-      'X-Goog-API-Key': apiKey,
-      'user-agent': navigator.userAgent,
-      accept: '*/*',
-      'accept-encoding': 'gzip, deflate, br',
-      'accept-language': 'en,zh-CN;q=0.9,zh;q=0.8,ja;q=0.7,en-US;q=0.6',
-    },
-    body: JSON.stringify([[[text], 'auto', targetLang], 'wt_lib']),
-    signal,
-  })
-
-  logger.log('GoogleHtml翻译API响应状态:', response.status, response.statusText)
-
-  if (!response.ok) {
-    throw new Error(`GoogleHtml翻译请求失败: ${response.status}`)
-  }
-
-  const data = (await response.json()) as unknown
-  logger.log('GoogleHtml翻译API返回数据:', JSON.stringify(data, null, 2))
-
-  if (Array.isArray(data) && data.length > 0) {
-    const firstItem = data[0]
-
-    if (typeof firstItem === 'number') {
-      const message = typeof data[1] === 'string' ? data[1] : '未知错误'
-      throw new Error(`GoogleHtml翻译API错误 (${firstItem}): ${message}`)
-    }
-
-    if (Array.isArray(firstItem) && firstItem.length > 0 && typeof firstItem[0] === 'string') {
-      return firstItem[0]
-    }
-
-    if (typeof firstItem === 'string') {
-      return firstItem
-    }
-  }
-
-  throw new Error('GoogleHtml翻译返回数据格式错误')
-}
-
-const translateWithMicrosoft = async (
-  text: string,
-  targetLang: TranslationDirection,
-  signal?: AbortSignal,
-): Promise<string> => {
-  const toLang = targetLang === 'zh' ? 'zh-Hans' : 'en'
-  const url = `https://api-edge.cognitive.microsofttranslator.com/translate?api-version=3.0&from=&to=${toLang}`
-
-  logger.log('正在请求Microsoft翻译API:', url)
-
-  const token = await getMicrosoftToken()
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      accept: '*/*',
-      'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8,en-GB;q=0.7,en-US;q=0.6',
-      authorization: `Bearer ${token}`,
-      'cache-control': 'no-cache',
-      'content-type': 'application/json',
-      pragma: 'no-cache',
-    },
-    body: JSON.stringify([{ Text: text }]),
-    signal,
-  })
-
-  logger.log('Microsoft翻译API响应状态:', response.status, response.statusText)
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    logger.error('Microsoft翻译API错误响应:', errorText)
-    throw new Error(`Microsoft翻译请求失败: ${response.status}`)
-  }
-
-  const data = (await response.json()) as MicrosoftTranslationResponseItem[]
-  logger.log('Microsoft翻译API返回数据:', data)
-
-  const translation = data[0]?.translations?.[0]?.text
-  if (typeof translation === 'string') {
-    return translation
-  }
-
-  throw new Error('Microsoft翻译返回数据格式错误')
-}
-
-const translateWithTencent = async (
-  text: string,
-  targetLang: TranslationDirection,
-  signal?: AbortSignal,
-): Promise<string> => {
-  const url = 'https://transmart.qq.com/api/imt'
-
-  logger.log('正在请求Tencent翻译API:', url)
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': navigator.userAgent,
-      Referer: 'https://transmart.qq.com/zh-CN/index',
-    },
-    body: JSON.stringify({
-      header: {
-        fn: 'auto_translation',
-        client_key:
-          'browser-chrome-110.0.0-Mac OS-df4bd4c5-a65d-44b2-a40f-42f34f3535f2-1677486696487',
-      },
-      type: 'plain',
-      model_category: 'normal',
-      source: {
-        text_list: [text],
-        lang: 'auto',
-      },
-      target: {
-        lang: targetLang,
-      },
-    }),
-    signal,
-  })
-
-  logger.log('Tencent翻译API响应状态:', response.status, response.statusText)
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    logger.error('Tencent翻译API错误响应:', errorText)
-    throw new Error(`Tencent翻译请求失败: ${response.status}`)
-  }
-
-  const data = (await response.json()) as { auto_translation?: unknown }
-  logger.log('Tencent翻译API返回数据:', data)
-
-  if (Array.isArray(data.auto_translation) && typeof data.auto_translation[0] === 'string') {
-    return data.auto_translation[0]
-  }
-
-  throw new Error('Tencent翻译返回数据格式错误')
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
 }
 
 /**
- * DeepL requires a user-provided API key stored in extension settings, so the
- * provider stays visible but reports a clear configuration error when missing.
+ * Keeps the provider request logic shared with Node smoke tests while the
+ * extension still resolves secrets from browser storage and its bundled key.
  */
-const translateWithDeepL = async (
-  text: string,
-  targetLang: TranslationDirection,
-  signal?: AbortSignal,
-): Promise<string> => {
-  const settings = await browser.storage.local.get(['deeplApiKey'])
-  const apiKey = settings.deeplApiKey as string | undefined
+const extensionRuntimeConfig: TranslationProviderRuntimeConfig = {
+  defaultHeaders: {
+    accept: 'application/json, text/plain, */*',
+    'accept-language':
+      navigator.languages?.join(',') || navigator.language || 'zh-CN,zh;q=0.9,en;q=0.8',
+    'cache-control': 'no-cache',
+    pragma: 'no-cache',
+  },
+  getDeepLApiKey: () => getStorageString('deeplApiKey'),
+  getGoogleApiKey: async () => getApiKey(),
+  getMicrosoftToken: signal => {
+    if (signal?.aborted) {
+      throw createAbortError()
+    }
 
-  if (!apiKey) {
-    throw new Error('DeepL API Key 未配置，请先在设置中填写')
-  }
-
-  const deeplTargetLang = targetLang === 'zh' ? 'ZH' : 'EN'
-  const url = 'https://api-free.deepl.com/v2/translate'
-
-  logger.log('正在请求DeepL翻译API:', url, 'Target:', deeplTargetLang)
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `DeepL-Auth-Key ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      text: [text],
-      target_lang: deeplTargetLang,
-    }),
-    signal,
-  })
-
-  logger.log('DeepL翻译API响应状态:', response.status, response.statusText)
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    logger.error('DeepL翻译API错误响应:', errorText)
-    throw new Error(`DeepL请求失败: ${response.status}`)
-  }
-
-  const data = (await response.json()) as DeepLTranslationResponse
-  logger.log('DeepL翻译API返回数据:', data)
-
-  const translation = data.translations?.[0]?.text
-  if (typeof translation === 'string') {
-    return translation
-  }
-
-  throw new Error('DeepL翻译返回数据格式错误')
+    return getMicrosoftToken()
+  },
+  getOpenRouterApiKey: () => getStorageString('openRouterApiKey'),
+  getOpenRouterModel: async () => (await getStorageString('openRouterModelId')) ?? 'openrouter/free',
+  logger,
+  userAgent: navigator.userAgent,
 }
 
-const translateWithOpenRouter = async (
-  text: string,
-  targetLang: TranslationDirection,
-  signal?: AbortSignal,
-): Promise<string> => {
-  const settings = await browser.storage.local.get(['openRouterApiKey', 'openRouterModelId'])
-  const apiKey = settings.openRouterApiKey as string | undefined
-  const model = (settings.openRouterModelId as string | undefined) || 'openrouter/free'
-
-  if (!apiKey) {
-    throw new Error('OpenRouter API Key 未配置，请点击右上角设置')
-  }
-
-  const url = 'https://openrouter.ai/api/v1/chat/completions'
-  const languageName = targetLang === 'zh' ? 'Chinese' : 'English'
-  const systemPrompt = `Translate the content within <source_text> tags into ${languageName}.
-Rules:
-1. Ensure the translation is natural, fluent, and uses common native expressions.
-2. Output ONLY the translation. No any extra content.
-3. Try to preserve original formatting.`
-
-  logger.log('正在请求OpenRouter翻译API:', url, 'Model:', model)
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://github.com/wxt-dev/wxt',
-      'X-Title': 'Translation Extension',
-    },
-    body: JSON.stringify({
-      model,
-      temperature: 0.1,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        {
-          role: 'user',
-          content: `Translate the content inside <source_text> to ${languageName}:\n<source_text>\n${text}\n</source_text>`,
-        },
-      ],
-    }),
-    signal,
-  })
-
-  logger.log('OpenRouter API响应状态:', response.status, response.statusText)
-
-  if (!response.ok) {
-    const errorText = await response.text()
-    logger.error('OpenRouter API错误响应:', errorText)
-    throw new Error(`OpenRouter请求失败: ${response.status}`)
-  }
-
-  const data = (await response.json()) as OpenRouterResponse
-  logger.log('OpenRouter API返回数据:', data)
-
-  const content = data.choices?.[0]?.message?.content
-  if (typeof content === 'string') {
-    return content
-  }
-
-  throw new Error('OpenRouter翻译返回数据格式错误')
-}
-
-const translatorMap: Record<TranslationServiceId, TranslatorFunction> = {
-  google: translateWithGoogle,
-  microsoft: translateWithMicrosoft,
-  tencent: translateWithTencent,
-  deepl: translateWithDeepL,
-  openrouter: translateWithOpenRouter,
-}
+const translatorMap = createTranslationProviders(extensionRuntimeConfig)
 
 export const getServiceLabel = (service: TranslationServiceId): string => {
   return TRANSLATION_SERVICE_LABELS[service]
