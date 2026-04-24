@@ -1,17 +1,17 @@
-import { css, html, render, svg } from "lit";
-import { unsafeHTML } from "lit/directives/unsafe-html.js";
-import { unsafeSVG } from "lit/directives/unsafe-svg.js";
-import { browser } from "wxt/browser";
-import iconSvg from "../../assets/icon.svg?raw";
-import { decodeResults } from "../../utils/decode";
+import { css, html, render, svg } from 'lit';
+import { unsafeHTML } from 'lit/directives/unsafe-html.js';
+import { unsafeSVG } from 'lit/directives/unsafe-svg.js';
+import { browser } from 'wxt/browser';
+import iconSvg from '../../assets/icon.svg?raw';
+import { decodeResults } from '../../utils/decode';
 import {
   getInlineApiKeyPrompt,
   saveInlineApiKeyAndRetry,
   type InlineApiKeyPrompt,
   type InlineApiKeyService,
-} from "../../utils/inlineApiKey";
-import { sanitizeRichTextHtml } from "../../utils/richTextDom";
-import type { TranslationSourcePayload } from "../../utils/richText";
+} from '../../utils/inlineApiKey';
+import { sanitizeRichTextHtml } from '../../utils/richTextDom';
+import type { TranslationSourcePayload } from '../../utils/richText';
 import {
   buildTranslationSessionKey,
   detectDirection,
@@ -27,7 +27,7 @@ import {
   type TranslationResultsByService,
   type TranslationServiceId,
   type TranslationServiceOption,
-} from "../../utils/translation";
+} from '../../utils/translation';
 
 interface TranslateDialogResponse {
   success?: boolean;
@@ -37,7 +37,7 @@ interface TranslateDialogResponse {
   isAbort?: boolean;
 }
 
-type DialogStatus = "loading" | "success" | "error";
+type DialogStatus = 'loading' | 'success' | 'error';
 
 interface InlineApiKeyFormState {
   errorMessage: string;
@@ -54,10 +54,10 @@ const renderStrokeIcon = (
   } = {},
 ) => svg`
   <svg
-    class=${options.className ?? "ui-icon"}
+    class=${options.className ?? 'ui-icon'}
     xmlns="http://www.w3.org/2000/svg"
-    viewBox=${options.viewBox ?? "0 0 24 24"}
-    fill=${options.filled ? "currentColor" : "none"}
+    viewBox=${options.viewBox ?? '0 0 24 24'}
+    fill=${options.filled ? 'currentColor' : 'none'}
     stroke="currentColor"
     stroke-width="2"
     stroke-linecap="round"
@@ -114,10 +114,7 @@ const renderSpeakerIcon = () =>
   `);
 
 const renderStopIcon = () =>
-  renderStrokeIcon(
-    svg`<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"></rect>`,
-    { filled: true },
-  );
+  renderStrokeIcon(svg`<rect x="7" y="7" width="10" height="10" rx="2" fill="currentColor"></rect>`, { filled: true });
 
 const renderCopyIcon = () =>
   renderStrokeIcon(svg`
@@ -134,7 +131,7 @@ const renderErrorIcon = () =>
     <path d="M9 9l6 6"></path>
   `);
 
-const renderChevronDownIcon = (className = "ui-icon") =>
+const renderChevronDownIcon = (className = 'ui-icon') =>
   renderStrokeIcon(svg`<path d="M6 9l6 6 6-6"></path>`, { className });
 
 const renderExternalLinkIcon = () =>
@@ -158,7 +155,7 @@ const renderGripIcon = () =>
     <circle cx="12" cy="12" r="1.5"></circle>
     <circle cx="21" cy="12" r="1.5"></circle>
   `,
-    { filled: true, viewBox: "0 0 24 24" },
+    { filled: true, viewBox: '0 0 24 24' },
   );
 
 const dialogStyles = css`
@@ -173,6 +170,7 @@ const dialogStyles = css`
     --border: rgba(255, 255, 255, 0.14);
     --active: #2563eb;
     --error: #ff8b8b;
+    --dialog-padding: 16px;
   }
 
   dialog.light-theme {
@@ -188,7 +186,8 @@ const dialogStyles = css`
   }
 
   dialog {
-    padding: 20px;
+    box-sizing: border-box;
+    padding: var(--dialog-padding);
     background: var(--bg);
     color: var(--text);
     border: none;
@@ -196,7 +195,7 @@ const dialogStyles = css`
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
     max-width: 560px;
     width: min(84vw, 560px);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     position: fixed;
     margin: auto;
     inset: 0;
@@ -223,16 +222,16 @@ const dialogStyles = css`
     transition: none !important;
   }
 
-  dialog.expanded {
-    width: 100% !important;
-    height: 100% !important;
-    max-width: 100% !important;
-    max-height: 100vh !important;
-    border-radius: 0 !important;
-    margin: 0 !important;
-    inset: 0 !important;
-    transform: none !important;
-  }
+   dialog.expanded {
+     width: 100vw !important;
+     height: 100vh !important;
+     max-width: 100vw !important;
+     max-height: 100vh !important;
+     border-radius: 0 !important;
+     margin: 0 !important;
+     inset: 0 !important;
+     transform: none !important;
+   }
 
   dialog::backdrop {
     background: rgba(0, 0, 0, 0);
@@ -244,14 +243,19 @@ const dialogStyles = css`
     transition: background 0.35s ease-out;
   }
 
-  .wrap {
-    height: 100%;
-    max-height: 88vh;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    overflow: hidden;
-  }
+   .wrap {
+     height: 100%;
+     max-height: 88vh;
+     display: flex;
+     flex-direction: column;
+     gap: 12px;
+     overflow: hidden;
+     padding: 4px;
+   }
+
+   dialog.expanded .wrap {
+     max-height: calc(100vh - var(--dialog-padding) * 2);
+   }
 
   .header {
     display: flex;
@@ -342,7 +346,7 @@ const dialogStyles = css`
 
   .dir-btn,
   .dropdown-trigger {
-    padding: 4px 10px;
+    padding: 3px 10px;
   }
 
   .theme-btn:hover,
@@ -558,11 +562,11 @@ const dialogStyles = css`
     font-size: 14px;
   }
 
-  .text,
-  .results {
-    overflow-y: auto;
-    min-height: 0;
-  }
+   .text,
+   .results {
+     overflow-y: auto;
+     min-height: 0;
+   }
 
   .text {
     font-size: 15px;
@@ -616,6 +620,7 @@ const dialogStyles = css`
     font-size: 15px;
     line-height: 1.6;
     word-break: break-word;
+    user-select: text;
   }
 
   .original-text p,
@@ -831,19 +836,19 @@ class TranslationDialogView {
   private readonly renderRoot: ShadowRoot;
   public onClose?: () => void;
 
-  private originalText = "";
-  private originalHtml = "";
-  private originalContentFormat: "plain" | "html" = "plain";
+  private originalText = '';
+  private originalHtml = '';
+  private originalContentFormat: 'plain' | 'html' = 'plain';
   private results: TranslationResultItem[] = [];
-  private direction: TranslationDirection = "zh";
+  private direction: TranslationDirection = 'zh';
   private selectedServices: TranslationServiceId[] = [];
   private visibleServiceOptions: TranslationServiceOption[] = [];
   private cachedResultsByService: TranslationResultsByService = {};
   private pendingServices = new Set<TranslationServiceId>();
-  private sessionKey = "";
-  private theme: "light" | "dark" = "light";
-  private status: DialogStatus = "loading";
-  private errorMessage = "";
+  private sessionKey = '';
+  private theme: 'light' | 'dark' = 'light';
+  private status: DialogStatus = 'loading';
+  private errorMessage = '';
   private isReadingOriginal = false;
   private readingResultService: TranslationServiceId | null = null;
   private isServiceMenuOpen = false;
@@ -878,18 +883,15 @@ class TranslationDialogView {
 
   public updateSuccess(results: TranslationResultItem[], direction?: TranslationDirection): void {
     this.applyResults(results, direction);
-    this.errorMessage = "";
+    this.errorMessage = '';
     this.pendingServices = new Set();
-    this.status = "success";
+    this.status = 'success';
     this.isServiceMenuOpen = false;
     this.renderView();
     this.presentDialog();
   }
 
-  public updateIncremental(
-    results: TranslationResultItem[],
-    direction?: TranslationDirection,
-  ): void {
+  public updateIncremental(results: TranslationResultItem[], direction?: TranslationDirection): void {
     this.applyResults(results, direction);
 
     // 更新 pendingServices: 移除已完成的服务
@@ -900,10 +902,10 @@ class TranslationDialogView {
 
     // 如果还有 pending 服务,保持 loading 状态;否则切换到 success
     if (this.pendingServices.size === 0 && this.results.length > 0) {
-      this.status = "success";
-      this.errorMessage = "";
+      this.status = 'success';
+      this.errorMessage = '';
     } else if (this.results.length > 0) {
-      this.status = "success";
+      this.status = 'success';
     }
 
     this.renderView();
@@ -911,7 +913,7 @@ class TranslationDialogView {
   }
 
   public updateError(message: string): void {
-    this.status = "error";
+    this.status = 'error';
     this.errorMessage = message;
     this.pendingServices = new Set();
     this.syncVisibleResults();
@@ -921,7 +923,7 @@ class TranslationDialogView {
   }
 
   public showError(message: string): void {
-    this.status = "error";
+    this.status = 'error';
     this.errorMessage = message;
     this.pendingServices = new Set();
     this.syncVisibleResults();
@@ -945,8 +947,8 @@ class TranslationDialogView {
    */
   private async performTranslation(forceRefresh = false): Promise<void> {
     if (this.selectedServices.length === 0) {
-      this.status = "error";
-      this.errorMessage = "至少选择一个翻译服务";
+      this.status = 'error';
+      this.errorMessage = '至少选择一个翻译服务';
       this.syncVisibleResults();
       this.renderView();
       return;
@@ -965,27 +967,31 @@ class TranslationDialogView {
       forceRefresh || !isSameSession
         ? [...this.selectedServices]
         : this.selectedServices.filter(
-            (service) =>
-              !this.cachedResultsByService[service] && !this.pendingServices.has(service),
+            (service) => !this.cachedResultsByService[service] && !this.pendingServices.has(service),
           );
     const batchVersion = this.bumpTranslationBatchVersion();
     const requestSessionKey = this.sessionKey;
 
     this.pendingServices = new Set([...this.pendingServices, ...requestServices]);
-    this.errorMessage = "";
+    this.errorMessage = '';
     this.isServiceMenuOpen = false;
 
     if (this.results.length === 0 && this.pendingServices.size > 0) {
-      this.status = "loading";
+      this.status = 'loading';
     } else if (this.results.length > 0) {
-      this.status = "success";
+      this.status = 'success';
     }
     this.renderView();
 
     try {
       const response = (await browser.runtime.sendMessage({
-        action: "translate",
+        action: 'translate',
         text: this.originalText,
+        source: {
+          plainText: this.originalText,
+          sanitizedHtml: this.originalHtml || undefined,
+          format: this.originalContentFormat,
+        },
         services: this.selectedServices,
         direction: this.direction,
         forceRefresh,
@@ -999,17 +1005,17 @@ class TranslationDialogView {
 
       if (response.isAbort) return;
 
-      this.errorMessage = response.error || "翻译失败";
+      this.errorMessage = response.error || '翻译失败';
       if (this.results.length === 0) {
-        this.status = "error";
+        this.status = 'error';
       }
     } catch (error: unknown) {
       if (isAbortError(error)) return;
       if (!this.isActiveBatchRequest(batchVersion, requestSessionKey)) return;
 
-      this.errorMessage = "翻译失败，请重试";
+      this.errorMessage = '翻译失败，请重试';
       if (this.results.length === 0) {
-        this.status = "error";
+        this.status = 'error';
       }
     } finally {
       // 清理 pending 状态
@@ -1021,11 +1027,11 @@ class TranslationDialogView {
         this.syncVisibleResults();
 
         if (this.pendingServices.size > 0 && this.results.length === 0) {
-          this.status = "loading";
+          this.status = 'loading';
         } else if (this.results.length > 0) {
-          this.status = "success";
+          this.status = 'success';
         } else if (this.errorMessage) {
-          this.status = "error";
+          this.status = 'error';
         }
         this.renderView();
       }
@@ -1036,16 +1042,14 @@ class TranslationDialogView {
     this.originalText = source.plainText;
     this.originalContentFormat = source.format;
     this.originalHtml =
-      source.format === "html" && source.sanitizedHtml
-        ? sanitizeRichTextHtml(source.sanitizedHtml)
-        : "";
+      source.format === 'html' && source.sanitizedHtml ? sanitizeRichTextHtml(source.sanitizedHtml) : '';
   }
 
   private async showLoadingInternal(source: TranslationSourcePayload): Promise<void> {
     const presentationVersion = this.bumpPresentationVersion();
-    this.status = "loading";
+    this.status = 'loading';
     this.setOriginalContent(source);
-    this.errorMessage = "";
+    this.errorMessage = '';
     this.isServiceMenuOpen = false;
     this.isDialogExpanded = false;
     this.direction = detectDirection(source.plainText);
@@ -1067,7 +1071,7 @@ class TranslationDialogView {
     direction?: TranslationDirection,
   ): Promise<void> {
     const presentationVersion = this.bumpPresentationVersion();
-    this.status = "success";
+    this.status = 'success';
     this.setOriginalContent(source);
     this.isServiceMenuOpen = false;
     this.isDialogExpanded = false;
@@ -1088,12 +1092,12 @@ class TranslationDialogView {
   private async loadSettings(): Promise<void> {
     const [preferences, storage] = await Promise.all([
       getTranslationServicePreferences(),
-      browser.storage.local.get(["theme"]),
+      browser.storage.local.get(['theme']),
     ]);
 
     this.selectedServices = preferences.selectedServices;
     this.visibleServiceOptions = preferences.visibleServiceOptions;
-    this.theme = storage.theme === "dark" ? "dark" : "light";
+    this.theme = storage.theme === 'dark' ? 'dark' : 'light';
     this.syncVisibleResults();
   }
 
@@ -1124,11 +1128,7 @@ class TranslationDialogView {
   }
 
   private isActiveBatchRequest(version: number, sessionKey: string): boolean {
-    return (
-      version === this.translationBatchVersion &&
-      sessionKey.length > 0 &&
-      sessionKey === this.sessionKey
-    );
+    return version === this.translationBatchVersion && sessionKey.length > 0 && sessionKey === this.sessionKey;
   }
 
   private bumpRetryRequestVersion(service: TranslationServiceId): number {
@@ -1143,10 +1143,7 @@ class TranslationDialogView {
     batchVersion: number,
     sessionKey: string,
   ): boolean {
-    return (
-      this.isActiveBatchRequest(batchVersion, sessionKey) &&
-      this.retryRequestVersions[service] === retryVersion
-    );
+    return this.isActiveBatchRequest(batchVersion, sessionKey) && this.retryRequestVersions[service] === retryVersion;
   }
 
   private applyResults(results: TranslationResultItem[], direction?: TranslationDirection): void {
@@ -1155,7 +1152,7 @@ class TranslationDialogView {
     }
 
     const normalizedResults = decodeResults(results).map((result) =>
-      result.status === "success" && result.contentFormat === "html" && result.translationHtml
+      result.status === 'success' && result.contentFormat === 'html' && result.translationHtml
         ? {
             ...result,
             translationHtml: sanitizeRichTextHtml(result.translationHtml),
@@ -1173,17 +1170,14 @@ class TranslationDialogView {
   private getInlineApiKeyFormState(service: InlineApiKeyService): InlineApiKeyFormState {
     return (
       this.inlineApiKeyForms[service] ?? {
-        errorMessage: "",
+        errorMessage: '',
         saving: false,
-        value: "",
+        value: '',
       }
     );
   }
 
-  private setInlineApiKeyFormState(
-    service: InlineApiKeyService,
-    nextState: Partial<InlineApiKeyFormState>,
-  ): void {
+  private setInlineApiKeyFormState(service: InlineApiKeyService, nextState: Partial<InlineApiKeyFormState>): void {
     this.inlineApiKeyForms = {
       ...this.inlineApiKeyForms,
       [service]: {
@@ -1195,7 +1189,7 @@ class TranslationDialogView {
 
   private handleInlineApiKeyInput(service: InlineApiKeyService, value: string): void {
     this.setInlineApiKeyFormState(service, {
-      errorMessage: "",
+      errorMessage: '',
       value,
     });
     this.renderView();
@@ -1208,7 +1202,7 @@ class TranslationDialogView {
     }
 
     this.setInlineApiKeyFormState(service, {
-      errorMessage: "",
+      errorMessage: '',
       saving: true,
     });
     this.renderView();
@@ -1224,13 +1218,13 @@ class TranslationDialogView {
       });
 
       this.setInlineApiKeyFormState(service, {
-        errorMessage: "",
+        errorMessage: '',
         saving: false,
         value: currentState.value.trim(),
       });
     } catch (error: unknown) {
       this.setInlineApiKeyFormState(service, {
-        errorMessage: error instanceof Error ? error.message : "保存设置失败",
+        errorMessage: error instanceof Error ? error.message : '保存设置失败',
         saving: false,
       });
       this.renderView();
@@ -1247,13 +1241,7 @@ class TranslationDialogView {
           ${renderErrorIcon()}
           <span>
             需要先输入 API Key，保存后会自动重试当前翻译服务。
-            <a
-              class="inline-key-link"
-              href=${prompt.keyUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              >获取 Key ↗</a
-            >
+            <a class="inline-key-link" href=${prompt.keyUrl} target="_blank" rel="noopener noreferrer">获取 Key ↗</a>
           </span>
         </div>
         <div class="inline-key-controls">
@@ -1277,23 +1265,16 @@ class TranslationDialogView {
               void this.handleInlineApiKeySave(prompt.service);
             }}
           >
-            ${formState.saving ? "保存中..." : prompt.saveButtonText}
+            ${formState.saving ? '保存中...' : prompt.saveButtonText}
           </button>
         </div>
-        ${formState.errorMessage
-          ? html`<div class="inline-key-error">${formState.errorMessage}</div>`
-          : null}
+        ${formState.errorMessage ? html`<div class="inline-key-error">${formState.errorMessage}</div>` : null}
       </div>
     `;
   }
 
-  private renderRichTextContent(
-    plainText: string,
-    htmlContent: string,
-    format: "plain" | "html",
-    className: string,
-  ) {
-    if (format === "html" && htmlContent) {
+  private renderRichTextContent(plainText: string, htmlContent: string, format: 'plain' | 'html', className: string) {
+    if (format === 'html' && htmlContent) {
       return html`<div class=${className}>${unsafeHTML(htmlContent)}</div>`;
     }
 
@@ -1323,8 +1304,8 @@ class TranslationDialogView {
     if (!dialog) return;
     const presentationVersion = this.presentationVersion;
 
-    dialog.style.transform = "scale(.86)";
-    dialog.style.opacity = "0";
+    dialog.style.transform = 'scale(.86)';
+    dialog.style.opacity = '0';
     this.isBackdropActive = false;
     this.syncDialogRuntimeState();
 
@@ -1333,10 +1314,9 @@ class TranslationDialogView {
 
       const activeDialog = this.getDialogElement();
       if (!activeDialog) return;
-      activeDialog.style.transition =
-        "transform .35s cubic-bezier(.34,1.56,.64,1), opacity .35s ease-out";
-      activeDialog.style.transform = "scale(1)";
-      activeDialog.style.opacity = "1";
+      activeDialog.style.transition = 'transform .35s cubic-bezier(.34,1.56,.64,1), opacity .35s ease-out';
+      activeDialog.style.transform = 'scale(1)';
+      activeDialog.style.opacity = '1';
       this.isBackdropActive = true;
       this.syncDialogRuntimeState();
     }, 10);
@@ -1359,9 +1339,9 @@ class TranslationDialogView {
       window.clearTimeout(this.closingTimer);
     }
 
-    dialog.style.transition = "transform .15s ease-in, opacity .15s ease-in";
-    dialog.style.transform = "scale(.86)";
-    dialog.style.opacity = "0";
+    dialog.style.transition = 'transform .15s ease-in, opacity .15s ease-in';
+    dialog.style.transform = 'scale(.86)';
+    dialog.style.opacity = '0';
     this.isBackdropActive = false;
     this.syncDialogRuntimeState();
 
@@ -1373,11 +1353,11 @@ class TranslationDialogView {
   }
 
   private abortOngoingTranslation(): void {
-    browser.runtime.sendMessage({ action: "abortTranslation" }).catch(() => {});
+    browser.runtime.sendMessage({ action: 'abortTranslation' }).catch(() => {});
   }
 
   private stopReading(): void {
-    if ("speechSynthesis" in window) {
+    if ('speechSynthesis' in window) {
       window.speechSynthesis.cancel();
     }
     this.isReadingOriginal = false;
@@ -1391,15 +1371,15 @@ class TranslationDialogView {
   private resetDialogPosition(): void {
     const dialog = this.getDialogElement();
     if (!dialog) return;
-    dialog.style.left = "";
-    dialog.style.top = "";
+    dialog.style.left = '';
+    dialog.style.top = '';
     this.isDialogPositioned = false;
     this.isDialogDragging = false;
     this.syncDialogRuntimeState();
   }
 
   private async toggleTheme(): Promise<void> {
-    this.theme = this.theme === "light" ? "dark" : "light";
+    this.theme = this.theme === 'light' ? 'dark' : 'light';
     await browser.storage.local.set({ theme: this.theme });
     this.renderView();
   }
@@ -1416,8 +1396,8 @@ class TranslationDialogView {
     } catch {
       // Fallback: use Clipboard API with Blob for environments where writeText is blocked
       try {
-        const blob = new Blob([text], { type: "text/plain" });
-        await navigator.clipboard.write([new ClipboardItem({ "text/plain": blob })]);
+        const blob = new Blob([text], { type: 'text/plain' });
+        await navigator.clipboard.write([new ClipboardItem({ 'text/plain': blob })]);
       } catch {
         // Last resort: silently fail — both modern APIs are unavailable
       }
@@ -1441,7 +1421,7 @@ class TranslationDialogView {
   }
 
   private getDialogElement(): HTMLDialogElement | null {
-    return this.renderRoot.querySelector("#translation-dialog");
+    return this.renderRoot.querySelector('#translation-dialog');
   }
 
   private renderView(): void {
@@ -1457,14 +1437,14 @@ class TranslationDialogView {
     const dialog = this.getDialogElement();
     if (!dialog) return;
 
-    dialog.classList.toggle("backdrop-active", this.isBackdropActive);
-    dialog.classList.toggle("is-positioned", this.isDialogPositioned);
-    dialog.classList.toggle("dragging", this.isDialogDragging);
+    dialog.classList.toggle('backdrop-active', this.isBackdropActive);
+    dialog.classList.toggle('is-positioned', this.isDialogPositioned);
+    dialog.classList.toggle('dragging', this.isDialogDragging);
   }
 
   private renderLoadingIndicator(centered = false) {
     return html`
-      <div class=${`status-row${centered ? " status-row-centered" : ""}`} aria-label="翻译中">
+      <div class=${`status-row${centered ? ' status-row-centered' : ''}`} aria-label="翻译中">
         <div class="spinner" aria-hidden="true"></div>
       </div>
     `;
@@ -1496,7 +1476,7 @@ class TranslationDialogView {
       return html`
         <div class="error-state">
           ${renderErrorIcon()}
-          <span>${this.errorMessage || "暂无翻译结果"}</span>
+          <span>${this.errorMessage || '暂无翻译结果'}</span>
         </div>
       `;
     }
@@ -1509,10 +1489,9 @@ class TranslationDialogView {
         return this.renderPendingCard(service);
       }
 
-      const canInteract = result.status === "success";
+      const canInteract = result.status === 'success';
       const speaking = this.readingResultService === result.service;
-      const inlineApiKeyPrompt =
-        result.status === "error" ? getInlineApiKeyPrompt(result.service, result.error) : null;
+      const inlineApiKeyPrompt = result.status === 'error' ? getInlineApiKeyPrompt(result.service, result.error) : null;
 
       return html`
         <article class="result-card">
@@ -1522,7 +1501,7 @@ class TranslationDialogView {
               ${pending ? html` <span class="badge">更新中</span> ` : null}
             </div>
             <div class="actions">
-              ${result.status === "error"
+              ${result.status === 'error'
                 ? html`
                     <button
                       class="icon-btn"
@@ -1540,7 +1519,7 @@ class TranslationDialogView {
                       class="icon-btn"
                       type="button"
                       data-tts-service=${result.service}
-                      title=${speaking ? "停止朗读" : "朗读"}
+                      title=${speaking ? '停止朗读' : '朗读'}
                       ?disabled=${!canInteract}
                       @click=${() => {
                         void this.handleResultSpeech(result.service);
@@ -1558,28 +1537,26 @@ class TranslationDialogView {
                         void this.handleCopyService(result.service);
                       }}
                     >
-                      ${this.copiedService === result.service
-                        ? renderCheckIcon()
-                        : renderCopyIcon()}
+                      ${this.copiedService === result.service ? renderCheckIcon() : renderCopyIcon()}
                     </button>
                   `}
             </div>
           </div>
-          ${result.status === "success"
+          ${result.status === 'success'
             ? this.renderRichTextContent(
                 result.translation,
-                result.translationHtml ?? "",
-                result.contentFormat === "html" ? "html" : "plain",
-                "result-text",
+                result.translationHtml ?? '',
+                result.contentFormat === 'html' ? 'html' : 'plain',
+                'result-text',
               )
             : inlineApiKeyPrompt
               ? this.renderInlineApiKeyForm(inlineApiKeyPrompt)
               : html`
-                <div class="error-state">
-                  ${renderErrorIcon()}
-                  <span>${result.error}</span>
-                </div>
-              `}
+                  <div class="error-state">
+                    ${renderErrorIcon()}
+                    <span>${result.error}</span>
+                  </div>
+                `}
         </article>
       `;
     });
@@ -1613,13 +1590,13 @@ class TranslationDialogView {
     this.syncVisibleResults();
 
     if (nextServices.length === 0) {
-      this.status = "error";
-      this.errorMessage = "至少选择一个翻译服务";
+      this.status = 'error';
+      this.errorMessage = '至少选择一个翻译服务';
       this.renderView();
       return;
     }
 
-    this.errorMessage = "";
+    this.errorMessage = '';
     await this.performTranslation(false);
   }
 
@@ -1643,22 +1620,26 @@ class TranslationDialogView {
     delete nextCachedResultsByService[service];
     this.cachedResultsByService = nextCachedResultsByService;
     this.pendingServices = new Set([...this.pendingServices, service]);
-    this.errorMessage = "";
+    this.errorMessage = '';
     this.syncVisibleResults();
-    this.status = this.results.length === 0 ? "loading" : "success";
+    this.status = this.results.length === 0 ? 'loading' : 'success';
     this.renderView();
 
     try {
       const response = (await browser.runtime.sendMessage({
-        action: "translate",
+        action: 'translate',
         text: this.originalText,
+        source: {
+          plainText: this.originalText,
+          sanitizedHtml: this.originalHtml || undefined,
+          format: this.originalContentFormat,
+        },
         services: [service],
         direction: this.direction,
         forceRefresh: true,
         preserveSelection: true,
       })) as TranslateDialogResponse;
-      if (!this.isActiveRetryRequest(service, retryVersion, batchVersion, requestSessionKey))
-        return;
+      if (!this.isActiveRetryRequest(service, retryVersion, batchVersion, requestSessionKey)) return;
 
       if (response.success && Array.isArray(response.results)) {
         this.applyResults(response.results, response.direction);
@@ -1669,16 +1650,15 @@ class TranslationDialogView {
 
       this.errorMessage = response.error || `${getServiceLabel(service)} 翻译失败`;
       if (this.results.length === 0) {
-        this.status = "error";
+        this.status = 'error';
       }
     } catch (error: unknown) {
       if (isAbortError(error)) return;
-      if (!this.isActiveRetryRequest(service, retryVersion, batchVersion, requestSessionKey))
-        return;
+      if (!this.isActiveRetryRequest(service, retryVersion, batchVersion, requestSessionKey)) return;
 
       this.errorMessage = `${getServiceLabel(service)} 翻译失败，请重试`;
       if (this.results.length === 0) {
-        this.status = "error";
+        this.status = 'error';
       }
     } finally {
       // 清理 pending 状态
@@ -1690,11 +1670,11 @@ class TranslationDialogView {
         this.syncVisibleResults();
 
         if (this.pendingServices.size > 0 && this.results.length === 0) {
-          this.status = "loading";
+          this.status = 'loading';
         } else if (this.results.length > 0) {
-          this.status = "success";
+          this.status = 'success';
         } else if (this.errorMessage) {
-          this.status = "error";
+          this.status = 'error';
         }
         this.renderView();
       }
@@ -1704,7 +1684,7 @@ class TranslationDialogView {
   private handleWrapClick(event: MouseEvent): void {
     const target = event.target;
     if (!(target instanceof HTMLElement)) return;
-    if (this.isServiceMenuOpen && !target.closest(".service-dropdown")) {
+    if (this.isServiceMenuOpen && !target.closest('.service-dropdown')) {
       this.isServiceMenuOpen = false;
       this.renderView();
     }
@@ -1745,7 +1725,7 @@ class TranslationDialogView {
     if (this.isDialogExpanded || !dialog) return;
 
     const target = event.target;
-    if (target instanceof HTMLElement && target.closest("button")) {
+    if (target instanceof HTMLElement && target.closest('button')) {
       return;
     }
 
@@ -1769,14 +1749,8 @@ class TranslationDialogView {
         this.syncDialogRuntimeState();
       }
 
-      const nextX = Math.max(
-        0,
-        Math.min(moveEvent.clientX - this.dragOffset.x, window.innerWidth - rect.width),
-      );
-      const nextY = Math.max(
-        0,
-        Math.min(moveEvent.clientY - this.dragOffset.y, window.innerHeight - rect.height),
-      );
+      const nextX = Math.max(0, Math.min(moveEvent.clientX - this.dragOffset.x, window.innerWidth - rect.width));
+      const nextY = Math.max(0, Math.min(moveEvent.clientY - this.dragOffset.y, window.innerHeight - rect.height));
 
       activeDialog.style.left = `${nextX}px`;
       activeDialog.style.top = `${nextY}px`;
@@ -1788,17 +1762,17 @@ class TranslationDialogView {
       this.clearDragListeners();
     };
 
-    window.addEventListener("mousemove", this.activeDragMoveHandler);
-    window.addEventListener("mouseup", this.activeDragUpHandler);
+    window.addEventListener('mousemove', this.activeDragMoveHandler);
+    window.addEventListener('mouseup', this.activeDragUpHandler);
   }
 
   private clearDragListeners(): void {
     if (this.activeDragMoveHandler) {
-      window.removeEventListener("mousemove", this.activeDragMoveHandler);
+      window.removeEventListener('mousemove', this.activeDragMoveHandler);
       this.activeDragMoveHandler = null;
     }
     if (this.activeDragUpHandler) {
-      window.removeEventListener("mouseup", this.activeDragUpHandler);
+      window.removeEventListener('mouseup', this.activeDragUpHandler);
       this.activeDragUpHandler = null;
     }
   }
@@ -1817,7 +1791,11 @@ class TranslationDialogView {
       const deltaY = moveEvent.clientY - startY;
       const newHeight = Math.max(60, startHeight + deltaY); // 最小高度 60px
       this.originalTextHeight = newHeight;
-      this.renderView();
+      // 直接操作 DOM style，避免每帧触发 Lit 全量重渲染
+      const originalBox = this.renderRoot.querySelector<HTMLElement>('.box.original');
+      if (originalBox) {
+        originalBox.style.maxHeight = `${newHeight}px`;
+      }
     };
 
     this.resizeDragUpHandler = () => {
@@ -1826,26 +1804,23 @@ class TranslationDialogView {
       this.renderView();
     };
 
-    window.addEventListener("mousemove", this.resizeDragMoveHandler);
-    window.addEventListener("mouseup", this.resizeDragUpHandler);
+    window.addEventListener('mousemove', this.resizeDragMoveHandler);
+    window.addEventListener('mouseup', this.resizeDragUpHandler);
   }
 
   private clearResizeListeners(): void {
     if (this.resizeDragMoveHandler) {
-      window.removeEventListener("mousemove", this.resizeDragMoveHandler);
+      window.removeEventListener('mousemove', this.resizeDragMoveHandler);
       this.resizeDragMoveHandler = null;
     }
     if (this.resizeDragUpHandler) {
-      window.removeEventListener("mouseup", this.resizeDragUpHandler);
+      window.removeEventListener('mouseup', this.resizeDragUpHandler);
       this.resizeDragUpHandler = null;
     }
   }
 
   private handleYoudaoOpen(): void {
-    window.open(
-      `https://www.youdao.com/result?word=${encodeURIComponent(this.originalText)}&lang=en`,
-      "_blank",
-    );
+    window.open(`https://www.youdao.com/result?word=${encodeURIComponent(this.originalText)}&lang=en`, '_blank');
   }
 
   private handleOriginalSpeech(): void {
@@ -1862,7 +1837,7 @@ class TranslationDialogView {
 
     const utterance = new SpeechSynthesisUtterance(this.originalText);
     // direction is the target language; original text is in the opposite language
-    utterance.lang = this.direction === "zh" ? "en-US" : "zh-CN";
+    utterance.lang = this.direction === 'zh' ? 'en-US' : 'zh-CN';
     utterance.onstart = () => {
       this.isReadingOriginal = true;
       this.renderView();
@@ -1880,13 +1855,13 @@ class TranslationDialogView {
 
   private async handleCopyService(service: TranslationServiceId): Promise<void> {
     const result = this.cachedResultsByService[service];
-    if (result?.status !== "success") return;
+    if (result?.status !== 'success') return;
     await this.copyToClipboard(result.translation, service);
   }
 
   private async handleResultSpeech(service: TranslationServiceId): Promise<void> {
     const result = this.cachedResultsByService[service];
-    if (!result || result.status !== "success") return;
+    if (!result || result.status !== 'success') return;
 
     if (this.readingResultService === service) {
       window.speechSynthesis.cancel();
@@ -1900,7 +1875,7 @@ class TranslationDialogView {
 
     const utterance = new SpeechSynthesisUtterance(result.translation);
     // direction is the target language; translated text IS in that language
-    utterance.lang = result.direction === "zh" ? "zh-CN" : "en-US";
+    utterance.lang = result.direction === 'zh' ? 'zh-CN' : 'en-US';
     utterance.onstart = () => {
       this.readingResultService = service;
       this.renderView();
@@ -1923,25 +1898,17 @@ class TranslationDialogView {
       </style>
       <dialog
         id="translation-dialog"
-        class=${[
-          this.theme === "light" ? "light-theme" : "",
-          this.isDialogExpanded ? "expanded" : "",
-        ]
+        class=${[this.theme === 'light' ? 'light-theme' : '', this.isDialogExpanded ? 'expanded' : '']
           .filter(Boolean)
-          .join(" ")}
+          .join(' ')}
         @click=${(event: MouseEvent) => this.handleDialogClick(event)}
         @cancel=${(event: Event) => this.handleDialogCancel(event)}
       >
         <div class="wrap" @click=${(event: MouseEvent) => this.handleWrapClick(event)}>
-          <div
-            class="header"
-            @mousedown=${(event: MouseEvent) => this.handleHeaderMouseDown(event)}
-          >
+          <div class="header" @mousedown=${(event: MouseEvent) => this.handleHeaderMouseDown(event)}>
             <div class="title">
               <div class="icon">${unsafeSVG(iconSvg)}</div>
-              <h3>
-                ${this.status === "error" && this.results.length === 0 ? "翻译失败" : "fanslate"}
-              </h3>
+              <h3>${this.status === 'error' && this.results.length === 0 ? '翻译失败' : 'fanslate'}</h3>
             </div>
             <div class="actions">
               <button
@@ -1953,12 +1920,12 @@ class TranslationDialogView {
                   void this.toggleTheme();
                 }}
               >
-                ${this.theme === "dark" ? renderMoonIcon() : renderSunIcon()}
+                ${this.theme === 'dark' ? renderMoonIcon() : renderSunIcon()}
               </button>
               <button
                 class="expand-btn"
                 id="expand-btn"
-                title=${this.isDialogExpanded ? "还原" : "全屏"}
+                title=${this.isDialogExpanded ? '还原' : '全屏'}
                 @click=${() => this.handleExpandToggle()}
               >
                 ${this.isDialogExpanded ? renderCollapseIcon() : renderExpandIcon()}
@@ -1982,21 +1949,21 @@ class TranslationDialogView {
               <span class="label">翻译目标</span>
               <div class="row">
                 <button
-                  class=${`dir-btn ${this.direction === "en" ? "active" : ""}`}
+                  class=${`dir-btn ${this.direction === 'en' ? 'active' : ''}`}
                   type="button"
                   data-direction="en"
                   @click=${() => {
-                    void this.handleDirectionChange("en");
+                    void this.handleDirectionChange('en');
                   }}
                 >
                   到英文
                 </button>
                 <button
-                  class=${`dir-btn ${this.direction === "zh" ? "active" : ""}`}
+                  class=${`dir-btn ${this.direction === 'zh' ? 'active' : ''}`}
                   type="button"
                   data-direction="zh"
                   @click=${() => {
-                    void this.handleDirectionChange("zh");
+                    void this.handleDirectionChange('zh');
                   }}
                 >
                   到中文
@@ -2016,10 +1983,8 @@ class TranslationDialogView {
                     this.renderView();
                   }}
                 >
-                  <span class="dropdown-trigger-text">
-                    ${getSelectedServicesSummary(this.selectedServices)}
-                  </span>
-                  <span class=${`dropdown-arrow ${this.isServiceMenuOpen ? "open" : ""}`}
+                  <span class="dropdown-trigger-text"> ${getSelectedServicesSummary(this.selectedServices)} </span>
+                  <span class=${`dropdown-arrow ${this.isServiceMenuOpen ? 'open' : ''}`}
                     >${renderChevronDownIcon()}</span
                   >
                 </button>
@@ -2060,7 +2025,7 @@ class TranslationDialogView {
                 <button
                   class="icon-btn"
                   id="tts-btn"
-                  title=${this.isReadingOriginal ? "停止朗读" : "朗读原文"}
+                  title=${this.isReadingOriginal ? '停止朗读' : '朗读原文'}
                   @click=${() => this.handleOriginalSpeech()}
                 >
                   ${this.isReadingOriginal ? renderStopIcon() : renderSpeakerIcon()}
@@ -2079,15 +2044,12 @@ class TranslationDialogView {
               this.originalText,
               this.originalHtml,
               this.originalContentFormat,
-              "text original-text",
+              'text original-text',
             )}
           </section>
 
-          <div class="resizer ${this.isResizing ? "resizing" : ""}" title="可按住上下拖动">
-            <div
-              class="resizer-handle"
-              @mousedown=${(event: MouseEvent) => this.handleResizerMouseDown(event)}
-            >
+          <div class="resizer ${this.isResizing ? 'resizing' : ''}" title="可按住上下拖动">
+            <div class="resizer-handle" @mousedown=${(event: MouseEvent) => this.handleResizerMouseDown(event)}>
               ${renderGripIcon()}
             </div>
           </div>
@@ -2113,9 +2075,9 @@ export class TranslationDialog {
   private element: TranslationDialogView;
 
   constructor() {
-    this.container = document.createElement("div");
-    this.container.id = "translation-extension-root";
-    this.shadowRoot = this.container.attachShadow({ mode: "open" });
+    this.container = document.createElement('div');
+    this.container.id = 'translation-extension-root';
+    this.shadowRoot = this.container.attachShadow({ mode: 'open' });
     this.element = new TranslationDialogView(this.shadowRoot);
     document.body.appendChild(this.container);
   }
@@ -2138,10 +2100,7 @@ export class TranslationDialog {
     this.element.updateSuccess(results, direction);
   }
 
-  public updateIncremental(
-    results: TranslationResultItem[],
-    direction?: TranslationDirection,
-  ): void {
+  public updateIncremental(results: TranslationResultItem[], direction?: TranslationDirection): void {
     this.ensureInDocument();
     this.element.updateIncremental(results, direction);
   }

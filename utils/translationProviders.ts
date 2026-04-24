@@ -219,7 +219,7 @@ export const createTranslationProviders = (
 
   const reconstructHtmlTranslation = async (
     html: string,
-    translatePlainText: (text: string) => Promise<string>,
+    translateTexts: (texts: string[]) => Promise<string[]>,
   ): Promise<TranslationProviderResult> => {
     const { tokens, segments } = collectHtmlTextSegments(html)
 
@@ -227,15 +227,10 @@ export const createTranslationProviders = (
       return buildHtmlResult(html)
     }
 
-    const translatedSegments = await Promise.all(
-      segments.map(async segment => ({
-        ...segment,
-        translation: await translatePlainText(segment.coreText),
-      })),
-    )
+    const translatedTexts = await translateTexts(segments.map(s => s.coreText))
 
-    translatedSegments.forEach(segment => {
-      tokens[segment.tokenIndex] = `${segment.leadingWhitespace}${segment.translation}${segment.trailingWhitespace}`
+    segments.forEach((segment, i) => {
+      tokens[segment.tokenIndex] = `${segment.leadingWhitespace}${translatedTexts[i] ?? segment.coreText}${segment.trailingWhitespace}`
     })
 
     return buildHtmlResult(tokens.join(''))
@@ -294,6 +289,36 @@ export const createTranslationProviders = (
     throw new Error('GoogleHtml翻译返回数据格式错误')
   }
 
+  /**
+   * Batches multiple plain-text segments into a single Google HTML translation
+   * request using <span data-s="N"> markers. Google preserves data-* attributes,
+   * so we can map translated spans back to their original positions.
+   */
+  const batchTranslateWithGoogle = async (
+    texts: string[],
+    targetLang: string,
+    signal?: AbortSignal,
+  ): Promise<string[]> => {
+    if (texts.length === 0) return []
+    if (texts.length === 1) {
+      return [await requestGoogleTranslation(escapeHtmlText(texts[0]), targetLang, signal)]
+    }
+
+    const batchHtml = texts
+      .map((text, i) => `<p data-s="${i}">${escapeHtmlText(text)}</p>`)
+      .join('')
+
+    const result = await requestGoogleTranslation(batchHtml, targetLang, signal)
+
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(result, 'text/html')
+
+    return texts.map((original, i) => {
+      const el = doc.querySelector(`[data-s="${i}"]`)
+      return el?.textContent?.trim() || original
+    })
+  }
+
   const translateWithGoogle: TranslatorFunction = async (source, targetLang, signal) => {
     const requestBody = resolveSourceRequestBody(source)
     const richHtmlSource = resolveRichHtmlSource(source)
@@ -314,8 +339,8 @@ export const createTranslationProviders = (
         return buildPlainResult(stripHtmlToPlainText(translation))
       }
 
-      const reconstructed = await reconstructHtmlTranslation(newlineAwarePlainHtmlSource, text =>
-        requestGoogleTranslation(text, targetLang, signal),
+      const reconstructed = await reconstructHtmlTranslation(newlineAwarePlainHtmlSource, texts =>
+        batchTranslateWithGoogle(texts, targetLang, signal),
       )
 
       return buildPlainResult(reconstructed.translation)
@@ -328,8 +353,8 @@ export const createTranslationProviders = (
     }
 
     if (richHtmlSource) {
-      return reconstructHtmlTranslation(richHtmlSource, text =>
-        requestGoogleTranslation(text, targetLang, signal),
+      return reconstructHtmlTranslation(richHtmlSource, texts =>
+        batchTranslateWithGoogle(texts, targetLang, signal),
       )
     }
 

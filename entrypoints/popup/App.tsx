@@ -26,6 +26,8 @@ function App() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isServiceMenuOpen, setIsServiceMenuOpen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  /** 是否保留尚未翻译的文本，与 storage 中的 keepUntranslatedInput 同步 */
+  const keepUntranslatedInputRef = useRef(false);
 
   const {
     runTranslation: sessionRunTranslation,
@@ -70,17 +72,19 @@ function App() {
     setError("");
     setIsServiceMenuOpen(false);
 
+    // 翻译触发时清除草稿，避免下次打开时恢复已翻译的文本
+    void browser.storage.local.remove("draftInputText");
+
+    // 用户发起翻译时立即记录历史，无需等待翻译结果返回
+    void recordHistory(trimmedText);
+
     try {
-      const didRequest = await sessionRunTranslation(
+      await sessionRunTranslation(
         trimmedText,
         services,
         translationDirection,
         forceRefresh,
       );
-
-      if (didRequest) {
-        await recordHistory(trimmedText);
-      }
     } catch (translateError: unknown) {
       if (checkIsAbortError(translateError)) {
         return;
@@ -113,6 +117,16 @@ function App() {
   useEffect(() => {
     const loadInitialState = async () => {
       await refreshServicePreferences();
+
+      const res = await browser.storage.local.get(["keepUntranslatedInput", "draftInputText"]);
+      const keepDraft = (res.keepUntranslatedInput as boolean | undefined) ?? false;
+      keepUntranslatedInputRef.current = keepDraft;
+
+      if (keepDraft && res.draftInputText) {
+        const draft = res.draftInputText as string;
+        setInputText(draft);
+        setTargetLang(detectDirection(draft));
+      }
     };
 
     void loadInitialState();
@@ -121,6 +135,10 @@ function App() {
   const handleSettingsSaved = async () => {
     const preferences = await refreshServicePreferences();
 
+    // 重新加载 keepUntranslatedInput 设置
+    const res = await browser.storage.local.get("keepUntranslatedInput");
+    keepUntranslatedInputRef.current = (res.keepUntranslatedInput as boolean | undefined) ?? false;
+
     if (speakingService && !preferences.selectedServices.includes(speakingService)) {
       stopSpeaking();
     }
@@ -128,6 +146,8 @@ function App() {
     if (inputText.trim()) {
       void runTranslation(inputText, preferences.selectedServices, targetLang, false);
     }
+
+    textareaRef.current?.focus();
   };
 
   const handleTranslate = async (
@@ -190,6 +210,11 @@ function App() {
     if (value.trim()) {
       setTargetLang(detectDirection(value));
     }
+
+    // 若开启了"保留尚未翻译的文本"，则实时保存草稿
+    if (keepUntranslatedInputRef.current) {
+      void browser.storage.local.set({ draftInputText: value });
+    }
   };
 
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -218,7 +243,7 @@ function App() {
     <div className="h-full overflow-hidden bg-base-100 text-base-content flex flex-col font-sans relative">
       {isSettingsOpen && (
         <Settings
-          onClose={() => setIsSettingsOpen(false)}
+          onClose={() => { setIsSettingsOpen(false); textareaRef.current?.focus(); }}
           onSaved={() => void handleSettingsSaved()}
         />
       )}

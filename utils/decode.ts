@@ -1,9 +1,9 @@
+import { stripHtmlToPlainText } from "./richText";
 import type { TranslationResultItem } from "./translation";
 
 /** Decodes HTML entities (e.g. &amp;, &lt;) that translation APIs sometimes return */
 export const decodeHtmlEntities = (text: string): string => {
-  const doc = new DOMParser().parseFromString(text, "text/html");
-  return doc.documentElement.textContent || text;
+  return stripHtmlToPlainText(text) || text;
 };
 
 /** Applies HTML entity decoding to all successful translation results */

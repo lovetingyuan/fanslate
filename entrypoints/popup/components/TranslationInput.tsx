@@ -21,7 +21,7 @@ export const TranslationInput = ({
       <textarea
         autoFocus
         ref={textareaRef}
-        className="textarea textarea-bordered w-full h-28 resize-none transition-colors"
+        className="textarea textarea-bordered w-full h-28 resize-y transition-colors"
         placeholder={`输入要翻译的文字到${targetLang === "zh" ? "中文" : "英文"}... (Shift+Enter 快速翻译)`}
         value={value}
         onChange={(event) => onChange(event.target.value)}

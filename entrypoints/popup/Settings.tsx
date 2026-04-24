@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BackIcon } from "../components/icons";
 
 interface SettingsProps {
   onClose: () => void;
@@ -9,7 +10,7 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
   const [apiKey, setApiKey] = useState("");
   const [modelId, setModelId] = useState("");
   const [deeplApiKey, setDeeplApiKey] = useState("");
-  const [saveError, setSaveError] = useState("");
+  const [keepUntranslatedInput, setKeepUntranslatedInput] = useState(false);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -17,46 +18,34 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
         "openRouterApiKey",
         "openRouterModelId",
         "deeplApiKey",
+        "keepUntranslatedInput",
       ]);
 
       if (res.openRouterApiKey) setApiKey(res.openRouterApiKey as string);
       if (res.openRouterModelId) setModelId(res.openRouterModelId as string);
       if (res.deeplApiKey) setDeeplApiKey(res.deeplApiKey as string);
+      if (res.keepUntranslatedInput) setKeepUntranslatedInput(res.keepUntranslatedInput as boolean);
     };
 
     void loadSettings();
   }, []);
 
-  const handleSave = async () => {
-    try {
-      setSaveError("");
-      await browser.storage.local.set({
-        openRouterApiKey: apiKey,
-        openRouterModelId: modelId,
-        deeplApiKey,
-      });
-      await onSaved();
-      onClose();
-    } catch (error: unknown) {
-      setSaveError(error instanceof Error ? error.message : "保存设置失败");
-    }
+  const handleBack = async () => {
+    await onSaved();
+    onClose();
   };
 
   return (
     <div className="absolute inset-0 bg-base-100 z-50 flex flex-col">
-      <div className="flex items-center justify-between px-4 py-2 border-b border-base-300">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-base-300">
+        <button
+          className="btn btn-ghost btn-circle btn-xs"
+          onClick={() => void handleBack()}
+          title="返回"
+        >
+          <BackIcon className="h-4 w-4" />
+        </button>
         <h2 className="text-base font-semibold opacity-80">设置</h2>
-        <div className="flex gap-2">
-          <button
-            className="btn btn-xs btn-soft min-h-7 h-7 px-2.5 text-primary"
-            onClick={handleSave}
-          >
-            保存
-          </button>
-          <button className="btn btn-xs btn-ghost min-h-7 h-7 px-2.5 font-normal" onClick={onClose}>
-            返回
-          </button>
-        </div>
       </div>
 
       <div className="p-4 space-y-4 flex-1 overflow-y-auto">
@@ -77,7 +66,10 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
             placeholder="deepl-api-key"
             className="input input-bordered input-sm w-full"
             value={deeplApiKey}
-            onChange={(e) => setDeeplApiKey(e.target.value)}
+            onChange={(e) => {
+              setDeeplApiKey(e.target.value);
+              void browser.storage.local.set({ deeplApiKey: e.target.value });
+            }}
           />
         </div>
 
@@ -98,7 +90,10 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
             placeholder="sk-or-..."
             className="input input-bordered input-sm w-full"
             value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
+            onChange={(e) => {
+              setApiKey(e.target.value);
+              void browser.storage.local.set({ openRouterApiKey: e.target.value });
+            }}
           />
         </div>
 
@@ -119,10 +114,27 @@ export default function Settings({ onClose, onSaved }: SettingsProps) {
             placeholder="openrouter/free"
             className="input input-bordered input-sm w-full"
             value={modelId}
-            onChange={(e) => setModelId(e.target.value)}
+            onChange={(e) => {
+              setModelId(e.target.value);
+              void browser.storage.local.set({ openRouterModelId: e.target.value });
+            }}
           />
         </div>
-        {saveError && <p className="text-xs text-error">{saveError}</p>}
+
+        <div className="form-control w-full">
+          <label className="label cursor-pointer gap-3">
+            <span className="label-text font-medium">在输入框中保留尚未翻译的文本</span>
+            <input
+              type="checkbox"
+              className="toggle toggle-sm toggle-primary"
+              checked={keepUntranslatedInput}
+              onChange={(e) => {
+                setKeepUntranslatedInput(e.target.checked);
+                void browser.storage.local.set({ keepUntranslatedInput: e.target.checked });
+              }}
+            />
+          </label>
+        </div>
       </div>
     </div>
   );

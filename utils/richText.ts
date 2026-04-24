@@ -125,10 +125,14 @@ export const normalizeTranslationSourcePayload = (
   }
 }
 
-export const buildTranslationSourceKey = (source: TranslationSourcePayload): string =>
-  source.format === 'html' && source.sanitizedHtml
-    ? `html::${source.plainText}::${source.sanitizedHtml}`
-    : `plain::${source.plainText}`
+export const buildTranslationSourceKey = (source: TranslationSourcePayload): string => {
+  if (source.format === 'html' && source.sanitizedHtml) {
+    const p = source.plainText.length
+    const h = source.sanitizedHtml.length
+    return `html:${p}:${source.plainText}:${h}:${source.sanitizedHtml}`
+  }
+  return `plain:${source.plainText.length}:${source.plainText}`
+}
 
 const normalizeComparableSelectionText = (value: string): string =>
   value.replace(/\s+/gu, ' ').trim()

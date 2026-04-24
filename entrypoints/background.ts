@@ -36,6 +36,7 @@ interface TabTranslationState {
 interface RuntimeMessageShape {
   action?: unknown;
   text?: unknown;
+  source?: unknown;
   selection?: unknown;
   services?: unknown;
   direction?: unknown;
@@ -135,7 +136,7 @@ export default defineBackground(() => {
       tabSelections.set(tabId, createEmptyTabState());
     }
 
-    return tabSelections.get(tabId) ?? createEmptyTabState();
+    return tabSelections.get(tabId)!;
   };
 
   const getTabControllers = (tabId: number): Map<TranslationServiceId, AbortController> => {
@@ -143,7 +144,7 @@ export default defineBackground(() => {
       tabControllers.set(tabId, new Map());
     }
 
-    return tabControllers.get(tabId) ?? new Map();
+    return tabControllers.get(tabId)!;
   };
 
   const getTabPendingPromises = (
@@ -153,7 +154,7 @@ export default defineBackground(() => {
       tabPendingPromises.set(tabId, new Map());
     }
 
-    return tabPendingPromises.get(tabId) ?? new Map();
+    return tabPendingPromises.get(tabId)!;
   };
 
   const syncPendingServices = (tabId: number): void => {
@@ -502,11 +503,15 @@ export default defineBackground(() => {
         browser.storage.local.set({ translationDirection: direction }).catch(() => {});
       }
 
+      // Prefer the source payload sent by the dialog (preserves HTML context on force-refresh)
+      // over the cached tab source, which may have been cleared.
+      const incomingSource = normalizeTranslationSourcePayload(runtimeMessage.source);
+
       const translationPromise =
         typeof tabId === "number"
           ? requestTabTranslations(
               tabId,
-              resolveTabSource(tabId, text),
+              incomingSource ?? resolveTabSource(tabId, text),
               services,
               direction,
               forceRefresh,
