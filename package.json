@@ -1,6 +1,6 @@
 {
   "name": "fanslate",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "description": "A browser extension for bidirectional Chinese-English translation via context menus.",
   "type": "module",
