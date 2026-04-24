@@ -291,8 +291,12 @@ export const createTranslationProviders = (
 
   /**
    * Batches multiple plain-text segments into a single Google HTML translation
-   * request using <span data-s="N"> markers. Google preserves data-* attributes,
-   * so we can map translated spans back to their original positions.
+   * request using <p data-s="N"> markers. Google preserves data-* attributes,
+   * so we can map translated paragraphs back to their original positions.
+   * Uses regex extraction to avoid a DOMParser dependency in Node test environments.
+   *
+   * Segments are already extracted from an HTML context (may contain HTML entities
+   * like &nbsp;), so they are escaped before wrapping in <p> tags.
    */
   const batchTranslateWithGoogle = async (
     texts: string[],
@@ -301,7 +305,8 @@ export const createTranslationProviders = (
   ): Promise<string[]> => {
     if (texts.length === 0) return []
     if (texts.length === 1) {
-      return [await requestGoogleTranslation(escapeHtmlText(texts[0]), targetLang, signal)]
+      // Single segment: send as-is (already in HTML entity form from the source HTML)
+      return [await requestGoogleTranslation(texts[0], targetLang, signal)]
     }
 
     const batchHtml = texts
@@ -310,12 +315,11 @@ export const createTranslationProviders = (
 
     const result = await requestGoogleTranslation(batchHtml, targetLang, signal)
 
-    const parser = new DOMParser()
-    const doc = parser.parseFromString(result, 'text/html')
-
+    // Extract translated text for each segment by matching <... data-s="N" ...>content</...>
+    // This avoids a DOMParser dependency so the same code works in Node test environments.
     return texts.map((original, i) => {
-      const el = doc.querySelector(`[data-s="${i}"]`)
-      return el?.textContent?.trim() || original
+      const match = result.match(new RegExp(`data-s="${i}"[^>]*>([^<]*)<`, 'u'))
+      return match?.[1]?.trim() || original
     })
   }
 

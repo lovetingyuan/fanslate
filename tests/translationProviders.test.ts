@@ -65,12 +65,12 @@ describe('createTranslationProviders', () => {
           return new Response(JSON.stringify([['你好 世界']]), { status: 200 })
         }
 
-        if (requestText === 'Hello') {
-          return new Response(JSON.stringify([['你好']]), { status: 200 })
-        }
-
-        if (requestText === 'world') {
-          return new Response(JSON.stringify([['世界']]), { status: 200 })
+        // Batch request: two segments wrapped in <p data-s="N">
+        if (requestText === '<p data-s="0">Hello</p><p data-s="1">world</p>') {
+          return new Response(
+            JSON.stringify([[`<p data-s="0">你好</p><p data-s="1">世界</p>`]]),
+            { status: 200 },
+          )
         }
 
         throw new Error(`Unexpected request text: ${requestText}`)
@@ -87,7 +87,7 @@ describe('createTranslationProviders', () => {
     expect(result.contentFormat).toBe('html')
     expect(result.translationHtml).toBe('<p>你好 <strong>世界</strong></p>')
     expect(result.translation).toBe('你好 世界')
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   it('preserves blank lines for google plain-text translations by translating newline-aware html', async () => {
@@ -97,20 +97,16 @@ describe('createTranslationProviders', () => {
         const parsedBody = JSON.parse(String(init?.body)) as [[[string], string, string], string]
         const requestText = parsedBody[0][0][0]
 
-        if (requestText === 'First\n\nSecond') {
-          return new Response(JSON.stringify([['第一段 第二段']]), { status: 200 })
-        }
-
         if (requestText === 'First<br><br>Second') {
           return new Response(JSON.stringify([['第一段 第二段']]), { status: 200 })
         }
 
-        if (requestText === 'First') {
-          return new Response(JSON.stringify([['第一段']]), { status: 200 })
-        }
-
-        if (requestText === 'Second') {
-          return new Response(JSON.stringify([['第二段']]), { status: 200 })
+        // Batch request: two segments wrapped in <p data-s="N">
+        if (requestText === '<p data-s="0">First</p><p data-s="1">Second</p>') {
+          return new Response(
+            JSON.stringify([[`<p data-s="0">第一段</p><p data-s="1">第二段</p>`]]),
+            { status: 200 },
+          )
         }
 
         throw new Error(`Unexpected request text: ${requestText}`)
@@ -132,20 +128,8 @@ describe('createTranslationProviders', () => {
         const parsedBody = JSON.parse(String(init?.body)) as [[[string], string, string], string]
         const requestText = parsedBody[0][0][0]
 
-        if (requestText === 'Alpha  Beta') {
-          return new Response(JSON.stringify([['甲 乙']]), { status: 200 })
-        }
-
         if (requestText === 'Alpha&nbsp;&nbsp;Beta') {
           return new Response(JSON.stringify([['甲&nbsp;&nbsp;乙']]), { status: 200 })
-        }
-
-        if (requestText === 'Alpha') {
-          return new Response(JSON.stringify([['甲']]), { status: 200 })
-        }
-
-        if (requestText === 'Beta') {
-          return new Response(JSON.stringify([['乙']]), { status: 200 })
         }
 
         throw new Error(`Unexpected request text: ${requestText}`)
